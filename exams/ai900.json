@@ -1,0 +1,14 @@
+{
+  "id": "ai900",
+  "title": "AI-900",
+  "subtitle": "Microsoft Azure AI Fundamentals",
+  "description": "Banque de <b><span class=\"q-total-tag\">…</span></b> questions couvrant les concepts IA, services Azure AI, et IA responsable.",
+  "version": 1,
+  "perExam": 36,
+  "timeMin": 45,
+  "passThreshold": 70,
+  "refLabel": "Microsoft Azure AI-900",
+  "cssClass": "ai",
+  "contentFile": "ai900.sqlite",
+  "resultsFile": "ai900_history.sqlite"
+}
