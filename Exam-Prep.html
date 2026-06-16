@@ -456,13 +456,6 @@
     background:none;border:none;cursor:pointer;padding:2px 0;text-decoration:underline;
     margin-top:4px;display:block}
 
-  /* ── Histoire sur les cartes picker ────────────────────────────── */
-  .quiz-card-hist{position:absolute;bottom:8px;right:8px;
-    font-size:10px;font-family:var(--font-mono);
-    background:rgba(212,168,83,.12);border:.5px solid rgba(212,168,83,.3);
-    color:var(--gold);border-radius:5px;padding:2px 7px;cursor:pointer;
-    transition:all .15s;line-height:1.6;z-index:2}
-  .quiz-card-hist:hover{background:rgba(212,168,83,.25)}
   /* bouton retour depuis history */
   .hist-back{font-size:11px;color:var(--text-dim);background:none;border:none;
     cursor:pointer;display:inline-flex;align-items:center;gap:5px;margin-bottom:1rem}
@@ -488,15 +481,8 @@
     border-radius:3px;background:rgba(77,182,172,.15);color:#4db6ac;
     border:.5px solid rgba(77,182,172,.3);margin-left:6px;vertical-align:middle}
 
-  .quiz-hist-btn{position:absolute;bottom:10px;right:12px;z-index:3;
-    font-family:var(--font-mono);font-size:10px;padding:4px 10px;
-    border-radius:6px;border:.5px solid var(--border);
-    background:var(--surface);color:var(--text-dim);cursor:pointer;
-    transition:all .15s;opacity:0;pointer-events:none}
-  .quiz-card:hover .quiz-hist-btn{opacity:1;pointer-events:auto}
-  .quiz-hist-btn:hover{border-color:var(--gold);color:var(--gold);
-    background:rgba(212,168,83,.08)}
-  @media (hover: none){.quiz-hist-btn{opacity:1;pointer-events:auto}}
+  .lang-card.hist-card{border-color:rgba(212,168,83,.3)}
+  .lang-card.hist-card:hover{border-color:var(--gold);background:rgba(212,168,83,.08)}
 </style>
 </head>
 <body>
@@ -1729,6 +1715,14 @@ function showLangScreen(quiz) {
     card.onclick = () => selectLangAndStart(lang, isAvail);
     container.appendChild(card);
   });
+  const histCard = document.createElement('div');
+  histCard.className = 'lang-card hist-card';
+  histCard.innerHTML = `<div class="lang-card-accent"></div>
+    <span class="lang-card-flag">📊</span>
+    <div class="lang-card-name">Historique</div>
+    <div class="lang-card-status ok">Voir les résultats passés</div>`;
+  histCard.onclick = () => openHistoryFor(quiz);
+  container.appendChild(histCard);
   showScreen('lang-screen');
 }
 
@@ -2474,7 +2468,6 @@ function _renderPicker() {
     return `<div class="quiz-card ${q.cssClass || ''}" onclick="loadQuiz(QUESTIONNAIRES.find(x=>x.id==='${q.id}'))">
       <div class="quiz-card-accent"></div>
       ${delBtn}
-      <button class="quiz-hist-btn" title="Voir l'historique" onclick="event.stopPropagation();openHistoryFor(QUESTIONNAIRES.find(x=>x.id==='${q.id}'))">📊 Historique</button>
       <div class="quiz-badge">${q.title}</div>
       <div class="quiz-title">${q.title}</div>
       <div class="quiz-subtitle">${q.subtitle}</div>
@@ -2833,10 +2826,14 @@ function fmtDur(s) { return Math.floor(s/60)+'m '+(s%60)+'s'; }
 function renderHistory(sRows, dRows, aRows) {
   const hs = document.getElementById('history-screen');
   var qzTitle = CUR_QUIZ ? ((EXAM_CONFIG&&EXAM_CONFIG.customTitle)||CUR_QUIZ.title) : 'Examen';
-  var sessions = sRows ? sRows.values.map(function(r){ return {
-    id:r[0], date:r[1], dateEnd:r[2], score:r[3], attempted:r[4],
-    dur:r[5], quizId:r[6]||'', quizTitle:r[7]||qzTitle, totalQ:r[8]||r[4]
-  }; }) : [];
+  var sessions = sRows ? sRows.values.map(function(r){
+    var totalQ = r[8]||r[4];
+    return {
+      id:r[0], date:r[1], dateEnd:r[2], score:r[3], attempted:r[4],
+      dur:r[5], quizId:r[6]||'', quizTitle:r[7]||qzTitle, totalQ:totalQ,
+      pct: totalQ ? Math.round(r[3]/totalQ*100) : 0
+    };
+  }) : [];
   var amap = {};
   if (aRows && aRows.values) {
     aRows.values.forEach(function(r) {
@@ -2846,9 +2843,10 @@ function renderHistory(sRows, dRows, aRows) {
   }
   const dmap = {};
   if (dRows) dRows.values.forEach(r => { if(!dmap[r[0]])dmap[r[0]]=[]; dmap[r[0]].push({d:r[1],c:r[2],t:r[3]}); });
-  var avg  = sessions.length ? Math.round(sessions.reduce((a,s)=>a+s.score,0)/sessions.length) : 0;
-  const pass = sessions.filter(s=>s.score>=70).length;
-  const best = sessions.length ? Math.max(...sessions.map(s=>s.score)) : 0;
+  var pass_th = CUR_QUIZ ? CUR_QUIZ.passThreshold : 70;
+  var avg  = sessions.length ? Math.round(sessions.reduce((a,s)=>a+s.pct,0)/sessions.length) : 0;
+  const pass = sessions.filter(s=>s.pct>=pass_th).length;
+  const best = sessions.length ? Math.max(...sessions.map(s=>s.pct)) : 0;
 
   // Tout dans une seule string html → assigné une seule fois à hs.innerHTML
   let html = '';
@@ -2876,11 +2874,11 @@ function renderHistory(sRows, dRows, aRows) {
     html += '<div class="hist-stat"><span class="val">'+best+'%</span><span class="lbl">Best</span></div>';
     html += '</div><div class="hist-table">';
     sessions.forEach(s => {
-      const ok = s.score >= 70;
+      const ok = s.pct >= pass_th;
       html += '<div class="hist-row" onclick="toggleDomains('+s.id+')">';
       html += '<div class="hist-row-head">';
       html += '<span class="hist-date">' + (s.quizTitle ? '<span style="font-family:var(--font-mono);font-size:9px;color:var(--gold);margin-right:5px">' + s.quizTitle + '</span>' : '') + fmtDate(s.date) + '</span>';
-      html += '<span class="hist-pct">'+s.score+'%</span>';
+      html += '<span class="hist-pct">'+s.pct+'%</span>';
       html += '<span class="hist-badge '+(ok?'pass':'fail')+'">'+(ok?'Pass':'Fail')+'</span>';
       html += '<span class="hist-meta">'+s.attempted+' Qs · '+fmtDur(s.dur)+'</span></div>';
       const doms = dmap[s.id]||[];

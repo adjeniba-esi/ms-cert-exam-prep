@@ -1,6 +1,6 @@
 # Exam Prep — Documentation
 
-Application d'entraînement aux certifications (CDMP, AI-900, DP-300, AZ-104).
+Application d'entraînement aux certifications (CDMP, AI-900, DP-300, AZ-104, DP-700).
 Chaque examen est autonome : banque de questions SQLite, historique des sessions,
 apprentissage adaptatif, traduction multilingue.
 
@@ -37,7 +37,8 @@ apprentissage adaptatif, traduction multilingue.
 │   ├── cdmp.js                    Idem, format .js
 │   ├── ai900.json / ai900.js
 │   ├── dp300.json / dp300.js
-│   └── az104.json / az104.js
+│   ├── az104.json / az104.js
+│   └── dp700.json / dp700.js
 │
 ├── sql/                           Scripts SQL de création des structures
 │   ├── 00_full_schema.sql             Schéma complet (questions + historique + traductions)
@@ -55,7 +56,9 @@ apprentissage adaptatif, traduction multilingue.
     │   ├── dp300.sqlite           546 questions DP-300
     │   ├── dp300.sqlite.js
     │   ├── az104.sqlite           123 questions AZ-104
-    │   └── az104.sqlite.js
+    │   ├── az104.sqlite.js
+    │   ├── dp700.sqlite           229 questions DP-700
+    │   └── dp700.sqlite.js
     └── results/                   Historiques initiaux (optionnel)
         └── <id>_history.sqlite    Chargé et fusionné au premier démarrage
 ```
@@ -131,7 +134,7 @@ Schéma minimal (CDMP, AI-900) — 4 options :
 | `explanation` | TEXT | NOT NULL | Explication affichée après réponse |
 | `is_complex` | INTEGER | NOT NULL DEFAULT 0 | Réservé (complexité, non utilisé actuellement) |
 
-Schéma étendu (DP-300, AZ-104, examens personnalisés) — 6 options + multi-select :
+Schéma étendu (DP-300, AZ-104, DP-700, examens personnalisés) — 6 options + multi-select :
 
 | Colonne | Type | Contrainte | Description |
 |---------|------|-----------|-------------|
@@ -274,7 +277,7 @@ libre (jusqu'à 300 tentatives).
 
 ```json
 {
-  "exams": ["cdmp", "ai900", "dp300", "az104"]
+  "exams": ["cdmp", "ai900", "dp300", "az104", "dp700"]
 }
 ```
 
