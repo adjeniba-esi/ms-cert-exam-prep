@@ -1013,6 +1013,10 @@ function setLoadingMsg(msg) {
   const el = document.getElementById('loading-msg');
   if (el) el.textContent = msg;
 }
+function showLoading() {
+  const ol = document.getElementById('loading-overlay');
+  if (ol) { ol.style.display = 'flex'; ol.style.opacity = '1'; }
+}
 function hideLoading() {
   const ol = document.getElementById('loading-overlay');
   if (ol) { ol.style.opacity = '0'; setTimeout(() => ol.style.display = 'none', 400); }
