@@ -1987,7 +1987,19 @@ async function _runTranslation(targetLang) {
           [t.id,targetLang,t.q,t.o[0]||'',t.o[1]||'',t.o[2]||'',t.o[3]||'',t.o[4]||'',t.o[5]||'',t.e]);
       });
       done+=trs.length;
-    } catch(err) { console.warn('Batch error:',err); await new Promise(r=>setTimeout(r,2000)); }
+      if (CUR_QUIZ&&CUR_QUIZ.dbKey) await persistDB(CUR_QUIZ.dbKey);
+    } catch(err) {
+      console.warn('Batch error:',err);
+      if (err.httpStatus) {
+        // Erreur HTTP fatale (401, 403, 404…) : sauvegarder et arrêter
+        if (CUR_QUIZ&&CUR_QUIZ.dbKey) await persistDB(CUR_QUIZ.dbKey);
+        document.getElementById('_tstat').textContent =
+          '⚠️ ' + err.message + ' — ' + done + '/' + total + ' question(s) sauvegardées. Relancez pour continuer.';
+        document.getElementById('_tgo').disabled = false;
+        return;
+      }
+      await new Promise(r=>setTimeout(r,2000));
+    }
     const pct=(done/total*100).toFixed(1);
     const bnum=Math.ceil((i+BATCH)/BATCH), btot=Math.ceil(total/BATCH);
     document.getElementById('_tpbar').style.width=pct+'%';
@@ -2038,7 +2050,7 @@ Input:${JSON.stringify(payload)}`;
     headers:{'content-type':'application/json','x-api-key':apiKey,'anthropic-version':'2023-06-01'},
     body:JSON.stringify({model:'claude-haiku-4-5-20251001',max_tokens:8192,messages:[{role:'user',content:prompt}]})
   });
-  if(!resp.ok){const e=await resp.text().catch(()=>'');throw new Error('API '+resp.status+(e?': '+e.slice(0,200):''));}
+  if(!resp.ok){const e=await resp.text().catch(()=>'');const err=new Error('API '+resp.status+(e?': '+e.slice(0,200):''));err.httpStatus=resp.status;throw err;}
   const data=await resp.json();
   if((data.stop_reason||'')==='max_tokens') console.warn('Tronqué — récupération partielle');
   return _parseJsonSafe(data.content[0].text);
