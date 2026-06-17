@@ -1252,9 +1252,13 @@ async function openHistoryFor(quiz) {
   try {
     const ok = await _ensureQuizDB(quiz);
     if (!ok) {
-      hideLoading();
-      _promptManualImport(quiz);
-      return;
+      // Contenu introuvable, mais l'historique n'en a pas besoin.
+      // Créer une DB vide pour que importHistory fonctionne.
+      if (!DB) {
+        await initSQLjs();
+        DB = new SQL.Database();
+        ensureResultsTables();
+      }
     }
     _updateCounters();
     hideLoading();
