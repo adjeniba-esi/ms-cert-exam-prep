@@ -1259,7 +1259,6 @@ async function openHistoryFor(quiz) {
       // Contenu introuvable, mais l'historique n'en a pas besoin.
       // Créer une DB vide pour que importHistory fonctionne.
       if (!DB) {
-        await initSQLjs();
         DB = new SQL.Database();
         ensureResultsTables();
       }
@@ -2851,10 +2850,12 @@ function renderHistory(sRows, dRows, aRows) {
   }
   const dmap = {};
   if (dRows) dRows.values.forEach(r => { if(!dmap[r[0]])dmap[r[0]]=[]; dmap[r[0]].push({d:r[1],c:r[2],t:r[3]}); });
-  var pass_th = CUR_QUIZ ? CUR_QUIZ.passThreshold : 70;
-  var avg  = sessions.length ? Math.round(sessions.reduce((a,s)=>a+s.pct,0)/sessions.length) : 0;
-  const pass = sessions.filter(s=>s.pct>=pass_th).length;
-  const best = sessions.length ? Math.max(...sessions.map(s=>s.pct)) : 0;
+  const pass_th = CUR_QUIZ ? CUR_QUIZ.passThreshold : 70;
+  const { sum: _sum, pass, best } = sessions.reduce(
+    (acc, s) => ({ sum: acc.sum + s.pct, pass: acc.pass + (s.pct >= pass_th ? 1 : 0), best: Math.max(acc.best, s.pct) }),
+    { sum: 0, pass: 0, best: 0 }
+  );
+  const avg = sessions.length ? Math.round(_sum / sessions.length) : 0;
 
   // Tout dans une seule string html → assigné une seule fois à hs.innerHTML
   let html = '';
