@@ -1974,8 +1974,8 @@ async function _runTranslation(targetLang) {
   }
 
   const BATCH=2, total=allRows.length;
-  let done=0;
-  for (let i=0; i<allRows.length; i+=BATCH) {
+  let done=0, aborted=false;
+  for (let i=0; i<allRows.length && !aborted; i+=BATCH) {
     const batch=allRows.slice(i,i+BATCH);
     try {
       const trs=await _callTranslationAPI(batch,targetLang,LANG_NAMES[targetLang]||targetLang,key);
@@ -1989,23 +1989,24 @@ async function _runTranslation(targetLang) {
       done+=trs.length;
       if (CUR_QUIZ&&CUR_QUIZ.dbKey) await persistDB(CUR_QUIZ.dbKey);
     } catch(err) {
-      console.warn('Batch error:',err);
-      if (err.httpStatus) {
-        // Erreur HTTP fatale (401, 403, 404…) : sauvegarder et arrêter
-        if (CUR_QUIZ&&CUR_QUIZ.dbKey) await persistDB(CUR_QUIZ.dbKey);
+      console.error('Batch error:',err);
+      aborted=true;
+      try { if (CUR_QUIZ&&CUR_QUIZ.dbKey) await persistDB(CUR_QUIZ.dbKey); } catch(_) {}
+      try {
         document.getElementById('_tstat').textContent =
           '⚠️ ' + err.message + ' — ' + done + '/' + total + ' question(s) sauvegardées. Relancez pour continuer.';
         document.getElementById('_tgo').disabled = false;
-        return;
-      }
-      await new Promise(r=>setTimeout(r,2000));
+      } catch(_) {}
     }
-    const pct=(done/total*100).toFixed(1);
-    const bnum=Math.ceil((i+BATCH)/BATCH), btot=Math.ceil(total/BATCH);
-    document.getElementById('_tpbar').style.width=pct+'%';
-    document.getElementById('_tstat').textContent=`Lot ${bnum}/${btot} — ${done}/${total} (${Math.round(pct)}%)`;
-    await new Promise(r=>setTimeout(r,800));
+    if (!aborted) {
+      const pct=(done/total*100).toFixed(1);
+      const bnum=Math.ceil((i+BATCH)/BATCH), btot=Math.ceil(total/BATCH);
+      document.getElementById('_tpbar').style.width=pct+'%';
+      document.getElementById('_tstat').textContent=`Lot ${bnum}/${btot} — ${done}/${total} (${Math.round(pct)}%)`;
+      await new Promise(r=>setTimeout(r,800));
+    }
   }
+  if (aborted) return;
 
   if (CUR_QUIZ&&CUR_QUIZ.dbKey) await persistDB(CUR_QUIZ.dbKey);
   _showLangNotif('✅ '+done+' questions en '+(LANG_NAMES[targetLang]||targetLang)+' sauvegardées');

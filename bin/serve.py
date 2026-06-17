@@ -79,8 +79,8 @@ class ProxyHandler(http.server.SimpleHTTPRequestHandler):
         self.wfile.write(data)
 
     def end_headers(self):
-        # Éviter la mise en cache agressive des fichiers SQLite/JSON pendant le dev
-        if self.path.endswith(('.json', '.sqlite', '.db')):
+        # Ne pas cacher les ressources dynamiques ni le HTML en mode dev
+        if self.path.endswith(('.html', '.json', '.sqlite', '.db')):
             self.send_header('Cache-Control', 'no-cache, no-store, must-revalidate')
         super().end_headers()
 
