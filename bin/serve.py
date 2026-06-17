@@ -15,7 +15,7 @@ Usage :
     python bin/serve.py --port 3000      # port personnalisé
     python bin/serve.py --host 0.0.0.0   # exposer sur le réseau (ex: conteneur)
 
-Puis ouvrez : http://localhost:8080/cdmp_exam_dmbok2.html
+Puis ouvrez : http://localhost:8080/Exam-Prep.html
 """
 import http.server, urllib.request, urllib.error, ssl, os, sys
 
@@ -110,7 +110,7 @@ def main():
     print(f"  Fichiers    : http://{HOST}:{PORT}/")
     print(f"  Proxy API   : http://{HOST}:{PORT}/api/translate")
     print(f"  Racine      : {root_dir}")
-    print(f"\n  Ouvrir      : \033[1;34mhttp://{HOST}:{PORT}/cdmp_exam_dmbok2.html\033[0m")
+    print(f"\n  Ouvrir      : \033[1;34mhttp://{HOST}:{PORT}/Exam-Prep.html\033[0m")
     print(f"\n  Arrêt       : Ctrl+C\n")
     try:
         server.serve_forever()
