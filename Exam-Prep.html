@@ -1664,6 +1664,7 @@ function prepExam() {
         id:        r[0],
         d:         r[1],  q: r[2],
         opts:      shuffledOpts,
+        _ord:      ord,
         correctSet: correctTexts,   // Set of correct option texts
         _x:        null,            // not used for multi
         exp:       r[10],
@@ -1680,6 +1681,7 @@ function prepExam() {
         id:   r[0],
         d:    r[1],  q: r[2],
         opts: ord.map(i => opts4[i]),
+        _ord: ord,
         _x:   _hx(ct + _$),
         _correctText: ct,
         exp:  r[10],
@@ -1771,7 +1773,11 @@ function _t(q) {
   if (LANG === 'en') return {q:q.q, opts:q.opts, exp:q.exp};
   const tr = EXAM_TR.get(q.id);
   if (!tr) return {q:q.q+' <span class=\"lang-badge\">EN</span>', opts:q.opts, exp:q.exp};
-  return {q:tr.q, opts:(tr.opts.length===q.opts.length?tr.opts:q.opts), exp:tr.exp||q.exp};
+  // Apply the same shuffle order used for English opts so positions align with _ok()
+  const tOpts = (tr.opts.length === q.opts.length && q._ord)
+    ? q._ord.map(i => tr.opts[i])
+    : q.opts;
+  return {q:tr.q, opts:tOpts, exp:tr.exp||q.exp};
 }
 
 function _updateLangButtons() {
