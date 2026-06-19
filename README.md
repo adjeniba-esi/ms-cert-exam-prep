@@ -2,7 +2,7 @@
 
 Application d'entraînement aux certifications (CDMP, AI-900, DP-300, AZ-104, DP-700).
 Chaque examen est autonome : banque de questions SQLite, historique des sessions,
-apprentissage adaptatif, traduction multilingue.
+apprentissage adaptatif, traduction multilingue, génération de QCM depuis YouTube.
 
 ---
 
@@ -14,9 +14,11 @@ apprentissage adaptatif, traduction multilingue.
 4. [Structure des bases de données SQLite](#4-structure-des-bases-de-données-sqlite)
 5. [Format des fichiers de configuration](#5-format-des-fichiers-de-configuration)
 6. [Scripts utilitaires](#6-scripts-utilitaires)
-7. [Ajouter un examen](#7-ajouter-un-examen)
-8. [Export et import de données](#8-export-et-import-de-données)
-9. [Architecture de chargement](#9-architecture-de-chargement)
+7. [Pipeline YouTube → QCM](#7-pipeline-youtube--qcm)
+8. [Ajouter un examen](#8-ajouter-un-examen)
+9. [Export et import de données](#9-export-et-import-de-données)
+10. [Architecture de chargement](#10-architecture-de-chargement)
+11. [Déploiement Kubernetes](#11-déploiement-kubernetes)
 
 ---
 
@@ -24,89 +26,111 @@ apprentissage adaptatif, traduction multilingue.
 
 ```
 ./
-├── cdmp_exam_dmbok2.html          Application (fichier unique)
+├── Exam-Prep.html                 Application (fichier unique, ~3000 lignes)
+├── Dockerfile                     Image de test local (python:3.12-slim + yt-dlp)
+├── .dockerignore
+├── .gitattributes                 Force LF sur tous les fichiers texte
 │
 ├── bin/
-│   ├── serve.py                   Serveur HTTP + proxy Anthropic API (traduction)
-│   └── sqlite2js.py               Convertisseur SQLite/JSON → .js (mode file://)
+│   ├── serve.py                   Serveur HTTP + proxy API (traduction, transcripts, Ollama)
+│   ├── sqlite2js.py               Convertisseur SQLite/JSON → .js (mode file://)
+│   ├── get_playlist_transcripts.py  Télécharge les sous-titres d'une playlist YouTube
+│   ├── transcript2questions.py    Génère des QCM depuis des transcripts via Claude
+│   └── requirements.txt           Dépendances Python (yt-dlp)
 │
 ├── exams/                         Définitions des examens
 │   ├── index.json                 Liste des identifiants d'examens disponibles
 │   ├── index.js                   Même contenu, chargeable sans serveur (file://)
-│   ├── cdmp.json                  Paramètres de l'examen CDMP
-│   ├── cdmp.js                    Idem, format .js
-│   ├── ai900.json / ai900.js
-│   ├── dp300.json / dp300.js
-│   ├── az104.json / az104.js
-│   └── dp700.json / dp700.js
+│   ├── <id>.json                  Paramètres d'un examen
+│   └── <id>.js                    Idem, format .js
 │
 ├── sql/                           Scripts SQL de création des structures
-│   ├── 00_full_schema.sql             Schéma complet (questions + historique + traductions)
-│   ├── 01_questions.sql               Banque de questions seule
-│   ├── 02_history.sql                 Tables d'historique (sessions, réponses)
-│   ├── 03_translations.sql            Traductions multilingues
-│   └── 04_history_export.sql          Schéma du fichier d'export historique
+│   ├── 00_full_schema.sql
+│   ├── 01_questions.sql
+│   ├── 02_history.sql
+│   ├── 03_translations.sql
+│   └── 04_history_export.sql
 │
 └── data/
     ├── content/                   Banques de questions (lecture seule)
     │   ├── cdmp.sqlite            600 questions CDMP/DMBOK2
-    │   ├── cdmp.sqlite.js         Idem encodé en base64 (mode file://)
     │   ├── ai900.sqlite           36 questions AI-900
-    │   ├── ai900.sqlite.js
     │   ├── dp300.sqlite           546 questions DP-300
-    │   ├── dp300.sqlite.js
     │   ├── az104.sqlite           123 questions AZ-104
-    │   ├── az104.sqlite.js
     │   ├── dp700.sqlite           229 questions DP-700
-    │   └── dp700.sqlite.js
+    │   └── *.sqlite.js            Variantes base64 (mode file://)
     └── results/                   Historiques initiaux (optionnel)
-        └── <id>_history.sqlite    Chargé et fusionné au premier démarrage
+        └── <id>_history.sqlite
 ```
 
 ---
 
 ## 2. Modes de fonctionnement
 
-L'application supporte deux modes sans modification du code :
+| Mode | Prérequis | Traduction | Génération YouTube |
+|------|-----------|------------|-------------------|
+| **Double-clic** (`file://`) | Fichiers `.js` présents | ✗ | ✗ |
+| **Serveur HTTP local** | `python3 bin/serve.py` | ✓ | ✓ |
+| **Container Docker** | Docker | ✓ | ✓ |
+| **Cluster Kubernetes** | Kind + ingress-nginx | ✓ | ✓ |
 
-| Mode | Prérequis | Cascade de chargement |
-|------|-----------|----------------------|
-| **Double-clic** (`file://`) | Fichiers `.js` présents | `.js` via `<script>` |
-| **Serveur HTTP** | `python3 bin/serve.py` | `.js` puis `fetch` sur `.sqlite` |
-| **Import manuel** | Aucun | `<input type=file>` proposé si les autres échouent |
-
-Les fichiers `.js` sont générés par `bin/sqlite2js.py` et embarquent les données
-en base64. Les balises `<script src>` ne sont pas soumises à la politique CORS,
-contrairement à `fetch()`.
+Les fichiers `.js` embarquent les données SQLite en base64 et sont chargés via
+`<script src>` (non soumis au CORS). En mode `file://`, `fetch()` est bloqué.
 
 ---
 
 ## 3. Démarrage rapide
 
+### Prérequis communs
+
+```bash
+# Python 3.9+ requis
+python3 --version
+
+# Installer les dépendances optionnelles (yt-dlp pour les transcripts YouTube)
+pip install -r bin/requirements.txt
+```
+
 ### Mode file:// (sans serveur)
 
+Aucune fonctionnalité réseau (traduction, YouTube) n'est disponible dans ce mode.
+
 ```bash
-# Générer les fichiers .js (une seule fois, puis après chaque modification)
+# Générer les fichiers .js (une fois, puis après chaque modification .sqlite/.json)
 python3 bin/sqlite2js.py
 
-# Ouvrir le HTML directement dans le navigateur
-open cdmp_exam_dmbok2.html          # macOS
-xdg-open cdmp_exam_dmbok2.html      # Linux
-start cdmp_exam_dmbok2.html         # Windows
+# Ouvrir directement dans le navigateur
+xdg-open Exam-Prep.html     # Linux
+open Exam-Prep.html          # macOS
+start Exam-Prep.html         # Windows
 ```
 
-### Mode HTTP (avec serveur)
+### Mode serveur HTTP local
+
+Toutes les fonctionnalités sont disponibles : traduction Claude, génération YouTube, Ollama.
 
 ```bash
-python3 bin/serve.py                 # localhost:8080
-python3 bin/serve.py --port 3000     # port personnalisé
-python3 bin/serve.py --host 0.0.0.0  # exposer sur le réseau
+python3 bin/serve.py                       # localhost:8080
+python3 bin/serve.py --port 3000           # port personnalisé
+python3 bin/serve.py --host 0.0.0.0        # exposer sur le réseau local
 
-# Puis ouvrir : http://localhost:8080/cdmp_exam_dmbok2.html
+# Ouvrir : http://localhost:8080/Exam-Prep.html
 ```
 
-Le `serve.py` sert également de proxy pour l'API Anthropic (traduction des
-questions en français via Claude Haiku, contournement CORS).
+### Mode Docker (test local en container)
+
+```bash
+# Construire l'image
+docker build -t exam-prep-local .
+
+# Lancer le container
+docker run -p 8080:8080 exam-prep-local
+
+# Ouvrir : http://localhost:8080/Exam-Prep.html
+```
+
+L'image `python:3.12-slim` embarque `yt-dlp` et lance `serve.py` directement
+sur le port 8080 — pas de nginx nécessaire pour le test local.
 
 ---
 
@@ -114,25 +138,19 @@ questions en français via Claude Haiku, contournement CORS).
 
 ### 4.1 Base de contenu — `data/content/<id>.sqlite`
 
-Contient les questions et, après le premier examen passé, l'historique complet
-(questions + résultats fusionnés par `ensureResultsTables`).
-
 #### Table `questions`
 
 Schéma minimal (CDMP, AI-900) — 4 options :
 
 | Colonne | Type | Contrainte | Description |
 |---------|------|-----------|-------------|
-| `id` | INTEGER | PK AUTOINCREMENT | Identifiant unique de la question |
-| `domain` | TEXT | NOT NULL | Domaine / thème (ex. « Data Governance ») |
+| `id` | INTEGER | PK AUTOINCREMENT | Identifiant unique |
+| `domain` | TEXT | NOT NULL | Domaine / thème |
 | `question` | TEXT | NOT NULL | Texte de la question |
-| `opt_a` | TEXT | NOT NULL | Option A |
-| `opt_b` | TEXT | NOT NULL | Option B |
-| `opt_c` | TEXT | NOT NULL | Option C |
-| `opt_d` | TEXT | NOT NULL | Option D |
-| `correct_idx` | TEXT | NOT NULL | Index(es) de la/des bonne(s) réponse(s) (voir note) |
+| `opt_a`…`opt_d` | TEXT | NOT NULL | Options de réponse |
+| `correct_idx` | TEXT | NOT NULL | Index de la bonne réponse (voir note) |
 | `explanation` | TEXT | NOT NULL | Explication affichée après réponse |
-| `is_complex` | INTEGER | NOT NULL DEFAULT 0 | Réservé (complexité, non utilisé actuellement) |
+| `is_complex` | INTEGER | NOT NULL DEFAULT 0 | Réservé |
 
 Schéma étendu (DP-300, AZ-104, DP-700, examens personnalisés) — 6 options + multi-select :
 
@@ -143,34 +161,23 @@ Schéma étendu (DP-300, AZ-104, DP-700, examens personnalisés) — 6 options +
 | `is_multi` | INTEGER | NOT NULL DEFAULT 0 | 1 = question à choix multiples |
 | `select_count` | INTEGER | NOT NULL DEFAULT 1 | Nombre de réponses attendues |
 
-> **Note `correct_idx`** : pour les questions à choix unique, c'est l'index de
-> l'option correcte (0, 1, 2…). Pour les questions multi-select, c'est une chaîne
-> de la forme `"0,2"` listant les index corrects. La valeur est stockée sous forme
-> de `TEXT` pour supporter les deux cas.
->
-> En mémoire, le moteur ne stocke jamais l'index brut — il calcule un hash
-> `SHA-1` de la valeur de l'option correcte (sel interne) pour éviter que
-> l'inspect du DOM révèle la réponse.
+> **Note `correct_idx`** : index 0-based pour les questions simples (`"2"`),
+> chaîne séparée par virgules pour le multi-select (`"0,2"`). Stocké en TEXT.
+> En mémoire, le moteur remplace l'index par un hash SHA-1 du texte de l'option
+> pour éviter de révéler la réponse via l'inspection du DOM.
 
-**Index :** `uq_q UNIQUE ON (question)` — garantit l'absence de doublons.
+**Index :** `uq_q UNIQUE ON (question)` — pas de doublons.
 
 #### Table `meta`
 
-| Colonne | Type | Description |
-|---------|------|-------------|
-| `key` | TEXT PK | Clé (`version`, `question_count`) |
-| `value` | TEXT | Valeur associée |
-
-Entrées présentes :
-
 | key | Exemple | Rôle |
 |-----|---------|------|
-| `version` | `"4"` | Version de la banque ; si la version en cache IDB est inférieure, la base est rechargée |
+| `version` | `"4"` | Incrémenter force le rechargement du cache IndexedDB |
 | `question_count` | `"546"` | Nombre de questions (pour l'affichage) |
 
 #### Table `question_translations`
 
-Créée à la demande lors de la première traduction (via Claude Haiku).
+Créée à la demande lors de la première traduction (Claude Haiku).
 
 | Colonne | Type | Description |
 |---------|------|-------------|
@@ -186,88 +193,41 @@ Créée à la demande lors de la première traduction (via Claude Haiku).
 
 ### 4.2 Tables d'historique
 
-Ces tables sont ajoutées dans la base de contenu par `ensureResultsTables()`
-au premier chargement. Elles sont également présentes dans les fichiers exportés
-`data/results/<id>_history.sqlite`.
+Ajoutées dans la base de contenu par `ensureResultsTables()` au premier chargement.
 
 #### Table `sessions`
 
-Une ligne par examen passé.
-
-| Colonne | Type | Contrainte | Description |
-|---------|------|-----------|-------------|
-| `id` | INTEGER | PK AUTOINCREMENT | Identifiant de session |
-| `started_at` | TEXT | NOT NULL | Horodatage ISO 8601 de début — **clé métier pour la déduplication à l'import** |
-| `completed_at` | TEXT | NOT NULL | Horodatage ISO 8601 de fin |
-| `score` | INTEGER | NOT NULL | Nombre de bonnes réponses |
-| `attempted` | INTEGER | NOT NULL | Nombre de questions répondues (hors skip) |
-| `cx_correct` | INTEGER | DEFAULT 0 | Bonnes réponses aux questions complexes |
-| `cx_total` | INTEGER | DEFAULT 0 | Total questions complexes posées |
-| `duration_sec` | INTEGER | DEFAULT 0 | Durée nette d'examen en secondes (hors pause) |
-| `quiz_id` | TEXT | DEFAULT '' | Identifiant de l'examen (`cdmp`, `dp300`…) |
-| `quiz_title` | TEXT | DEFAULT '' | Titre affiché (peut être personnalisé via config screen) |
-| `total_questions` | INTEGER | DEFAULT 0 | Nombre total de questions du tirage |
+| Colonne | Type | Description |
+|---------|------|-------------|
+| `id` | INTEGER PK | Identifiant de session |
+| `started_at` | TEXT | Horodatage ISO 8601 — clé de déduplication à l'import |
+| `completed_at` | TEXT | Horodatage de fin |
+| `score` | INTEGER | Bonnes réponses |
+| `attempted` | INTEGER | Questions répondues (hors skip) |
+| `duration_sec` | INTEGER | Durée nette en secondes |
+| `quiz_id` | TEXT | Identifiant de l'examen |
+| `quiz_title` | TEXT | Titre affiché |
+| `total_questions` | INTEGER | Taille du tirage |
 
 #### Table `domain_scores`
 
-Scores détaillés par domaine pour chaque session.
-
-| Colonne | Type | Contrainte | Description |
-|---------|------|-----------|-------------|
-| `id` | INTEGER | PK AUTOINCREMENT | — |
-| `session_id` | INTEGER | NOT NULL FK → sessions | Session parente |
-| `domain` | TEXT | NOT NULL | Nom du domaine |
-| `correct` | INTEGER | NOT NULL | Bonnes réponses dans ce domaine |
-| `total` | INTEGER | NOT NULL | Questions posées dans ce domaine |
-
-**Index :** `idx_ds_sid ON (session_id)`.
+Scores par domaine pour chaque session (`session_id`, `domain`, `correct`, `total`).
 
 #### Table `session_answers`
 
-Réponse fournie pour chaque question d'un examen.
+Réponse fournie pour chaque question (`session_id`, `question_id`, `question_idx`,
+`question`, `domain`, `answer_given`, `correct_answer`, `is_correct`, `explanation`).
 
-| Colonne | Type | Contrainte | Description |
-|---------|------|-----------|-------------|
-| `id` | INTEGER | PK AUTOINCREMENT | — |
-| `session_id` | INTEGER | NOT NULL FK → sessions | Session parente |
-| `question_id` | INTEGER | DEFAULT NULL | Référence à `questions.id` — utilisé par le mode adaptatif pour identifier les questions maîtrisées |
-| `question_idx` | INTEGER | NOT NULL DEFAULT 0 | Position (0-based) dans le tirage de cette session |
-| `question` | TEXT | NOT NULL | Texte de la question au moment de l'examen (langue active) |
-| `domain` | TEXT | NOT NULL | Domaine de la question |
-| `answer_given` | TEXT | DEFAULT NULL | Texte de l'option choisie ; `NULL` si la question a été passée ; séparateur ` \| ` pour les multi-select |
-| `correct_answer` | TEXT | NOT NULL | Texte de la/des bonne(s) réponse(s) ; séparateur ` \| ` pour les multi-select |
-| `is_correct` | INTEGER | NOT NULL DEFAULT 0 | `1` = bonne réponse, `0` = mauvaise ou passée |
-| `explanation` | TEXT | NOT NULL | Explication complète |
-
-**Index :** `idx_ans_sid ON (session_id)`.
-
-> **Mode adaptatif** : lors de la préparation d'un examen avec le mode adaptatif
-> activé, l'application interroge les 3 dernières sessions et identifie les
-> `question_id` répondus correctement ≥ 2 fois. Ces questions sont placées dans
-> un pool « maîtrisées » (15 % du tirage). Les autres constituent le pool « à
-> réviser » (85 %).
+> **Mode adaptatif** : interroge les 3 dernières sessions et identifie les questions
+> répondues correctement ≥ 2 fois (pool « maîtrisées », 15 % du tirage).
+> Les autres constituent le pool « à réviser » (85 %).
 
 ---
 
 ### 4.3 Base d'historique exportée — `data/results/<id>_history.sqlite`
 
-Fichier autonome produit par le bouton **Sauvegarder l'historique**.
-Il contient uniquement les données de résultats, **sans les questions**.
-
-Tables présentes : `sessions`, `domain_scores`, `session_answers`, `meta`.
-
-Table `meta` spécifique :
-
-| key | Valeur exemple | Description |
-|-----|---------------|-------------|
-| `version` | `"1"` | Version du format d'export |
-| `app` | `"ExamPrep"` | Identification de l'application source |
-
-**Import / fusion :** lors du chargement d'un fichier historique (bouton
-**Restaurer un historique** ou au démarrage si le fichier existe dans
-`data/results/`), chaque session est insérée avec déduplication sur `started_at` :
-si la date existe déjà, elle est reculée d'une seconde jusqu'à trouver un slot
-libre (jusqu'à 300 tentatives).
+Tables : `sessions`, `domain_scores`, `session_answers`, `meta`.
+Utilisée pour pré-charger l'historique au premier démarrage d'un examen.
 
 ---
 
@@ -276,13 +236,8 @@ libre (jusqu'à 300 tentatives).
 ### `exams/index.json`
 
 ```json
-{
-  "exams": ["cdmp", "ai900", "dp300", "az104", "dp700"]
-}
+{ "exams": ["cdmp", "ai900", "dp300", "az104", "dp700"] }
 ```
-
-Ordre d'affichage dans le picker. Ajouter un identifiant ici et créer le fichier
-de config correspondant suffit à enregistrer un nouvel examen.
 
 ### `exams/<id>.json`
 
@@ -291,32 +246,23 @@ de config correspondant suffit à enregistrer un nouvel examen.
   "id":            "dp300",
   "title":         "DP-300",
   "subtitle":      "Azure Database Administrator Associate",
-  "description":   "HTML affiché sur la carte du picker (balises autorisées)",
+  "description":   "Description HTML (balises autorisées)",
   "version":       4,
   "perExam":       55,
   "timeMin":       100,
   "passThreshold": 70,
-  "refLabel":      "Microsoft Azure DP-300",
   "cssClass":      "dp300",
   "contentFile":   "dp300.sqlite",
   "resultsFile":   "dp300_history.sqlite"
 }
 ```
 
-| Champ | Type | Description |
-|-------|------|-------------|
-| `id` | string | Identifiant unique, sans espaces |
-| `title` | string | Titre court affiché sur la carte et dans l'interface |
-| `subtitle` | string | Sous-titre affiché sous le titre |
-| `description` | string | Description HTML sur la carte du picker |
-| `version` | integer | Version de la banque ; incrémenter force le rechargement du cache IDB |
-| `perExam` | integer | Nombre de questions par défaut dans l'écran de configuration |
-| `timeMin` | integer | Durée par défaut en minutes |
-| `passThreshold` | integer | Score de réussite en pourcentage |
-| `refLabel` | string | Libellé de la référence (affiché dans l'interface) |
-| `cssClass` | string | Classe CSS appliquée à la carte (pour la couleur d'accentuation) |
-| `contentFile` | string | Nom du fichier SQLite dans `data/content/` |
-| `resultsFile` | string | Nom du fichier d'historique dans `data/results/` |
+| Champ | Description |
+|-------|-------------|
+| `version` | Incrémenter force le rechargement du cache IndexedDB |
+| `perExam` | Nombre de questions par défaut |
+| `passThreshold` | Score de réussite en % |
+| `cssClass` | Classe CSS pour la couleur d'accentuation |
 
 ---
 
@@ -324,101 +270,165 @@ de config correspondant suffit à enregistrer un nouvel examen.
 
 ### `bin/serve.py`
 
-Serveur HTTP statique + proxy de traduction.
+Serveur HTTP + proxy API. Requis pour la traduction, les transcripts YouTube et Ollama.
 
-```
-python3 bin/serve.py [--port PORT] [--host HOST]
+```bash
+python3 bin/serve.py [--port PORT] [--host HOST] [--cors-origin ORIGIN]
 ```
 
 | Option | Défaut | Description |
 |--------|--------|-------------|
 | `--port` | `8080` | Port d'écoute |
-| `--host` | `127.0.0.1` | Interface réseau (`0.0.0.0` pour exposer sur le LAN) |
+| `--host` | `127.0.0.1` | Interface réseau (`0.0.0.0` pour le réseau local) |
+| `--cors-origin` | `*` | Origine CORS autorisée (restreindre en production) |
 
 Endpoints :
 
 | Méthode | Chemin | Description |
 |---------|--------|-------------|
-| GET | `/*` | Fichiers statiques servis depuis la racine du projet |
-| POST | `/api/translate` | Proxy vers `api.anthropic.com/v1/messages` (CORS) |
+| GET | `/*` | Fichiers statiques depuis la racine du projet |
+| POST | `/api/translate` | Proxy vers `api.anthropic.com/v1/messages` |
+| POST | `/api/transcript` | Extraction de sous-titres YouTube via yt-dlp |
+| POST | `/api/ollama` | Proxy vers une instance Ollama locale |
 
-La clé API Anthropic est passée par le navigateur dans l'en-tête `X-Api-Key`
-et retransmise au proxy sans être stockée côté serveur.
+La clé API Anthropic est transmise par le navigateur via l'en-tête `X-Api-Key` et
+retransmise sans être stockée côté serveur ni écrite dans les logs.
+
+> **Sécurité** : en production, passer `--cors-origin https://votre-domaine.com`
+> pour restreindre l'accès au proxy API à votre seule origine.
 
 ### `bin/sqlite2js.py`
 
-Convertit les fichiers de données en modules `.js` chargeables sans serveur.
+Convertit les fichiers de données en modules `.js` pour le mode `file://`.
 
+```bash
+python3 bin/sqlite2js.py            # conversion unique
+python3 bin/sqlite2js.py --watch    # surveille et reconvertit automatiquement
+python3 bin/sqlite2js.py --clean    # supprime les .js générés
 ```
-python3 bin/sqlite2js.py [--watch] [--clean]
+
+À relancer après toute modification d'un `.sqlite` ou `.json`.
+
+### `bin/get_playlist_transcripts.py`
+
+Télécharge les sous-titres d'une playlist YouTube et les convertit en `.txt`.
+
+```bash
+# Prérequis
+pip install yt-dlp
+
+python3 bin/get_playlist_transcripts.py <playlist_url> [options]
 ```
 
-| Option | Description |
-|--------|-------------|
-| _(aucune)_ | Convertit tous les fichiers une fois |
-| `--watch` | Surveille les modifications et reconvertit automatiquement |
-| `--clean` | Supprime tous les fichiers `.js` générés |
+| Option | Défaut | Description |
+|--------|--------|-------------|
+| `--output DIR` | `./transcripts` | Dossier de sortie |
+| `--lang CODE` | `fr` | Code langue des sous-titres (`fr`, `en`…) |
 
-Fichiers générés :
+```bash
+# Exemple
+python3 bin/get_playlist_transcripts.py \
+  "https://youtube.com/playlist?list=PLxxxxx" \
+  --output transcripts/az104 \
+  --lang fr
+```
 
-| Source | Destination | Variable globale |
-|--------|-------------|-----------------|
-| `exams/index.json` | `exams/index.js` | `window.__EXAM_INDEX` |
-| `exams/<id>.json` | `exams/<id>.js` | `window.__EXAM_CONFIGS['<id>']` |
-| `data/content/*.sqlite` | `data/content/*.sqlite.js` | `window.__EXAM_CONTENT['<file>']` |
-| `data/results/*.sqlite` | `data/results/*.sqlite.js` | `window.__EXAM_RESULTS['<file>']` |
+### `bin/transcript2questions.py`
 
-Les données SQLite sont encodées en base64 dans le `.js`. À relancer après toute
-modification d'un `.sqlite` ou `.json`.
+Génère des questions QCM depuis des fichiers de transcripts via Claude.
+
+```bash
+python3 bin/transcript2questions.py \
+    --input transcripts/az104 \
+    --output data/content/az104_custom.sqlite \
+    --exam-id az104_custom \
+    --api-key sk-ant-... \
+    [--model claude-haiku-4-5-20251001] \
+    [--questions-per-chunk 5] \
+    [--chunk-words 1500] \
+    [--append]
+```
+
+| Option | Défaut | Description |
+|--------|--------|-------------|
+| `--input DIR` | — | Dossier contenant les `.srt` ou `.txt` |
+| `--output FILE` | — | Chemin du SQLite de sortie |
+| `--exam-id ID` | `custom` | Identifiant stocké dans `meta` |
+| `--api-key KEY` | `$ANTHROPIC_API_KEY` | Clé API Anthropic |
+| `--model MODEL` | `claude-haiku-4-5-20251001` | Modèle Claude |
+| `--questions-per-chunk N` | `5` | Questions générées par segment |
+| `--chunk-words N` | `1500` | Taille max d'un segment en mots |
+| `--append` | — | Ajouter à une base existante |
 
 ---
 
-## 7. Scripts SQL
+## 7. Pipeline YouTube → QCM
 
-Les scripts dans `./sql/` permettent de créer les structures SQLite manuellement
-ou de les documenter pour des outils externes (DB Browser for SQLite, DBeaver…).
+Deux approches selon le volume.
 
-| Fichier | Usage |
-|---------|-------|
-| `00_full_schema.sql` | Schéma complet en une passe (questions + historique + traductions) |
-| `01_questions.sql` | Banque de questions seule, avec exemples d'insertion |
-| `02_history.sql` | Tables de sessions, scores par domaine, réponses par question |
-| `03_translations.sql` | Traductions multilingues avec requêtes de diagnostic |
-| `04_history_export.sql` | Format du fichier exporté via "Sauvegarder l'historique" |
+### A. Génération directe depuis l'interface (une vidéo ou une URL)
 
-Création d'une nouvelle base à partir des scripts :
+Dans le picker, cliquer **➕ Ajouter un examen** → onglet **▶ YouTube**.
+
+1. Coller une URL YouTube (vidéo ou playlist)
+2. Sélectionner la langue des sous-titres et le modèle (Claude Haiku/Sonnet ou Ollama)
+3. Saisir la clé API Anthropic si elle n'est pas déjà mémorisée
+4. Cliquer **Créer**
+
+La clé est validée avant tout téléchargement. Elle est stockée dans `localStorage`
+du navigateur uniquement — jamais côté serveur.
+
+> Nécessite le mode serveur HTTP (`python3 bin/serve.py` ou container Docker).
+
+### B. Pipeline en ligne de commande (playlists volumineuses)
 
 ```bash
-# Base complète
-sqlite3 data/content/monexamen.sqlite < sql/00_full_schema.sql
+# Étape 1 — Télécharger les sous-titres
+python3 bin/get_playlist_transcripts.py \
+  "https://youtube.com/playlist?list=PLxxxxx" \
+  --output transcripts/mon-examen \
+  --lang fr
 
-# Ou étape par étape
-sqlite3 data/content/monexamen.sqlite < sql/01_questions.sql
-sqlite3 data/content/monexamen.sqlite < sql/02_history.sql
-sqlite3 data/content/monexamen.sqlite < sql/03_translations.sql
+# Étape 2 — Générer les questions
+python3 bin/transcript2questions.py \
+  --input  transcripts/mon-examen \
+  --output data/content/mon-examen.sqlite \
+  --exam-id mon-examen \
+  --api-key sk-ant-...
 
-# Base d'historique autonome
-sqlite3 data/results/monexamen_history.sqlite < sql/04_history_export.sql
+# Étape 3 — Générer les fichiers .js (pour le mode file://)
+python3 bin/sqlite2js.py
+
+# Étape 4 — Déclarer l'examen
+# Ajouter "mon-examen" dans exams/index.json
+# Créer exams/mon-examen.json avec title, perExam, timeMin, passThreshold, contentFile
 ```
+
+### Support Ollama (modèle local)
+
+Pour la génération de questions sans clé API Anthropic :
+
+1. Dans la modale "Ajouter un examen" → onglet YouTube, sélectionner **Ollama** dans le sélecteur de modèle
+2. Renseigner l'URL Ollama (défaut : `http://localhost:11434`) et le nom du modèle
+3. `serve.py` proxifie la requête vers Ollama (`POST /api/ollama`)
+
+---
 
 ## 8. Ajouter un examen
 
-### Examen depuis un fichier SQLite existant
+### Depuis un fichier SQLite existant
 
-1. Déposer le fichier de questions dans `data/content/monexamen.sqlite`
-   (schéma : voir §4.1)
-2. Créer `exams/monexamen.json` avec les paramètres
-3. Ajouter `"monexamen"` à la liste dans `exams/index.json`
-4. Régénérer les `.js` : `python3 bin/sqlite2js.py`
+1. Déposer `data/content/monexamen.sqlite` (schéma §4.1)
+2. Créer `exams/monexamen.json`
+3. Ajouter `"monexamen"` dans `exams/index.json`
+4. `python3 bin/sqlite2js.py`
 
-### Examen vide depuis l'interface
+### Depuis l'interface (examen personnalisé)
 
-Dans le picker, cliquer sur **➕ Ajouter un examen**. L'interface propose de
-renseigner le titre, la durée, le seuil de réussite et d'importer optionnellement
-un fichier `.sqlite`. Sans fichier, une base vide est créée avec le schéma complet.
-Les métadonnées sont sauvegardées dans `localStorage`, la base dans IndexedDB.
+**➕ Ajouter un examen** → onglet **📁 Fichier** : importer un `.sqlite` ou créer
+une base vide. Les métadonnées sont dans `localStorage`, la base dans IndexedDB.
 
-### Schéma SQLite minimal pour une banque de questions importée
+### Schéma SQLite minimal
 
 ```sql
 CREATE TABLE questions (
@@ -429,22 +439,17 @@ CREATE TABLE questions (
     opt_b        TEXT    NOT NULL DEFAULT '',
     opt_c        TEXT    NOT NULL DEFAULT '',
     opt_d        TEXT    NOT NULL DEFAULT '',
-    opt_e        TEXT             DEFAULT '',   -- optionnel
-    opt_f        TEXT             DEFAULT '',   -- optionnel
-    correct_idx  TEXT    NOT NULL DEFAULT '0',  -- '0'..'5' ou '0,2' pour multi
+    opt_e        TEXT             DEFAULT '',
+    opt_f        TEXT             DEFAULT '',
+    correct_idx  TEXT    NOT NULL DEFAULT '0',
     explanation  TEXT    NOT NULL DEFAULT '',
     is_complex   INTEGER NOT NULL DEFAULT 0,
-    is_multi     INTEGER NOT NULL DEFAULT 0,    -- 1 = choix multiples
-    select_count INTEGER NOT NULL DEFAULT 1     -- nb de réponses attendues
+    is_multi     INTEGER NOT NULL DEFAULT 0,
+    select_count INTEGER NOT NULL DEFAULT 1
 );
-
-CREATE TABLE meta (
-    key   TEXT PRIMARY KEY,
-    value TEXT NOT NULL
-);
-
+CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 INSERT INTO meta VALUES ('version', '1');
-INSERT INTO meta VALUES ('question_count', '0'); -- mis à jour automatiquement
+INSERT INTO meta VALUES ('question_count', '0');
 ```
 
 ---
@@ -453,21 +458,20 @@ INSERT INTO meta VALUES ('question_count', '0'); -- mis à jour automatiquement
 
 ### Depuis l'écran de démarrage (par examen)
 
-| Bouton | Fichier produit | Contenu |
-|--------|----------------|---------|
-| 📥 Exporter la base | `<id>_YYYY-MM-DD.sqlite` | Questions + traductions + historique complet |
-| 📤 Importer une base | — | Remplace la base active en IndexedDB |
+| Bouton | Contenu |
+|--------|---------|
+| 📥 Exporter la base | Questions + traductions + historique complet |
+| 📤 Importer une base | Remplace la base active en IndexedDB |
 
 ### Depuis l'écran d'historique
 
-| Bouton | Fichier produit | Contenu |
-|--------|----------------|---------|
-| 📥 Sauvegarder l'historique | `<id>_history_YYYY-MM-DD.sqlite` | Sessions + scores + réponses, **sans questions** |
-| 📤 Restaurer un historique | — | Fusionne avec déduplication sur `started_at` |
+| Bouton | Contenu |
+|--------|---------|
+| 📥 Sauvegarder l'historique | Sessions + scores + réponses, sans questions |
+| 📤 Restaurer un historique | Fusion avec déduplication sur `started_at` |
 
-Le fichier d'historique exporté est compatible avec le chargement automatique :
-le déposer dans `data/results/<id>_history.sqlite` et régénérer les `.js` le
-fera charger automatiquement au prochain premier démarrage de cet examen.
+Le fichier d'historique exporté peut être pré-chargé en le déposant dans
+`data/results/<id>_history.sqlite` et en relançant `sqlite2js.py`.
 
 ---
 
@@ -482,13 +486,13 @@ initSQLjs()          Charge sql.js (WebAssembly SQLite en mémoire)
         ▼
 loadExamDefinitions()
   ┌─────────────────────────────────────┐
-  │ 1. loadScript(exams/index.js)       │  file:// ✓
-  │    → window.__EXAM_INDEX            │
-  │ 2. fetch(exams/index.json)          │  HTTP uniquement
-  │ 3. Pour chaque id :                 │
-  │    a. window.__EXAM_CONFIGS[id]     │  déjà chargé
-  │    b. loadScript(exams/<id>.js)     │  file:// ✓
-  │    c. fetch(exams/<id>.json)        │  HTTP uniquement
+  │ 1. window.__EXAM_INDEX              │  déjà en mémoire
+  │ 2. loadScript(exams/index.js)       │  file:// ✓
+  │ 3. fetch(exams/index.json)          │  HTTP uniquement
+  │ Pour chaque id :                    │
+  │   a. window.__EXAM_CONFIGS[id]      │
+  │   b. loadScript(exams/<id>.js)      │  file:// ✓
+  │   c. fetch(exams/<id>.json)         │  HTTP uniquement
   └─────────────────────────────────────┘
         │
         ▼
@@ -504,19 +508,17 @@ loadQuiz(quiz)
   │       │ non                                         │
   │       ▼                                             │
   │ _loadDataAsset(contentFile)                         │
-  │   1. window.__EXAM_CONTENT[file]   (déjà en mém.)   │
+  │   1. window.__EXAM_CONTENT[file]  (mémoire)         │
   │   2. loadScript(content/<file>.js) (file:// ✓)      │
-  │   3. fetch(data/content/<file>)    (HTTP)            │
-  │   4. _promptManualImport()         (sélection fichier)│
+  │   3. fetch(data/content/<file>)   (HTTP)             │
+  │   4. _promptManualImport()        (sélection fichier)│
   │       │                                             │
   │       ▼                                             │
-  │ _loadDataAsset(resultsFile)  [si existe]            │
-  │   → même cascade                                    │
+  │ _loadDataAsset(resultsFile) [si existe]             │
   │   → _mergeResultsInto() si trouvé                   │
   │       │                                             │
   │       ▼                                             │
-  │ ensureResultsTables()  + persistDB(IDB)             │
-  │ location.reload() [1ère fois pour compteurs]        │
+  │ ensureResultsTables() + persistDB(IDB)              │
   └─────────────────────────────────────────────────────┘
         │
         ▼
@@ -525,8 +527,131 @@ showLangScreen() ──▶ showConfigScreen() ──▶ startExam()
 
 ### Cache IndexedDB
 
-Chaque base est mise en cache sous la clé `<id>_db`. L'application vérifie
-le champ `meta.version` : si la version en cache est ≥ à `version` dans le
-fichier de configuration, la base locale est réutilisée sans re-téléchargement.
-Pour forcer un rechargement (mise à jour des questions), incrémenter `version`
-dans le fichier `.json` et régénérer le `.js`.
+Chaque base est mise en cache sous `<id>_db`. La version en cache est comparée
+à `meta.version` : si inférieure, la base est rechargée depuis la source.
+Pour forcer un rechargement, incrémenter `version` dans le `.json` et relancer `sqlite2js.py`.
+
+---
+
+## 11. Déploiement Kubernetes
+
+### Architecture dans le container de production
+
+En production, l'image embarque nginx + serve.py dans le même container :
+
+```
+[navigateur]
+    │ HTTPS
+    ▼
+[ingress-nginx]  ──  TLS terminé par cert-manager
+    │
+    ▼  /prep-exam/
+[nginx :80]  ──  fichiers statiques → /usr/share/nginx/html/prep-exam/
+    │
+    │  /prep-exam/api/*  →  proxy_pass  →  127.0.0.1:8081
+    ▼
+[serve.py :8081]  ──  proxy Anthropic / yt-dlp / Ollama
+```
+
+### Prérequis
+
+- Cluster Kubernetes avec `ingress-nginx` et `cert-manager`
+- `kubectl` et `kind` (pour un cluster local Kind)
+- `docker` pour le build de l'image
+- Ansible (`ansible-playbook`)
+
+### Image Docker de production
+
+L'image de production (distincte du `Dockerfile` de dev local) est construite
+par le playbook Ansible depuis les fichiers dans le dépôt de déploiement.
+Elle se base sur `python:3.12-alpine` + `apk add nginx` + `pip install yt-dlp`.
+
+### Déploiement avec Ansible (cluster Kind)
+
+```bash
+# Depuis le dépôt de déploiement (cnpg-playground)
+ansible-playbook deploy-exam-prep.yml \
+  -e ingress_domain=votre-domaine.example.com
+```
+
+Le playbook effectue dans l'ordre :
+
+1. Copie le `Dockerfile.exam-prep`, `nginx-exam.conf` et `start.sh` dans le
+   répertoire source de l'application
+2. `docker build` de l'image `cnpg-exam-prep:latest`
+3. Nettoyage des fichiers temporaires copiés
+4. `kind load docker-image` pour injecter l'image dans le cluster Kind
+5. Génération et application des manifestes Kubernetes (Deployment + Service + Ingress)
+6. `kubectl rollout restart deployment/exam-prep`
+7. Attente du rollout (`--timeout=120s`)
+
+### Manifestes Kubernetes
+
+**Deployment** — 1 replica, requests `50m/64Mi`, limits `200m/128Mi`.
+
+**Service** — `ClusterIP` sur le port 80.
+
+**Ingress** — règle `Prefix /prep-exam` vers le service. Le bloc `tls:` est géré
+par un ingress séparé (frontend) ; ne pas dupliquer `tls:` pour le même host sous
+peine de conflit de certificat dans nginx-ingress.
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: exam-prep
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: votre-domaine.example.com
+    http:
+      paths:
+      - path: /prep-exam
+        pathType: Prefix
+        backend:
+          service:
+            name: exam-prep
+            port:
+              number: 80
+```
+
+### Nginx dans le container
+
+Configuration dans `nginx-exam.conf` (Alpine utilise `/etc/nginx/http.d/`, pas `conf.d/`) :
+
+```nginx
+server {
+    listen 80;
+    root /usr/share/nginx/html;
+
+    location = /prep-exam { return 301 /prep-exam/; }
+
+    location ~ ^/prep-exam(/api/.+)$ {
+        proxy_pass         http://127.0.0.1:8081$1;
+        proxy_read_timeout 600s;
+    }
+
+    location /prep-exam/ { try_files $uri $uri/ =404; }
+}
+```
+
+### Variables d'environnement et configuration CORS
+
+En production, serve.py est lancé avec l'origine explicite pour restreindre
+l'accès au proxy API :
+
+```sh
+python bin/serve.py \
+  --port 8081 \
+  --host 127.0.0.1 \
+  --cors-origin https://votre-domaine.example.com
+```
+
+Cela garantit que seul le navigateur servi depuis votre domaine peut utiliser
+les endpoints `/api/*` comme proxy vers Anthropic.
+
+### Sécurité de la clé API
+
+- Stockée dans `localStorage` du navigateur (scoped à l'origine, inaccessible aux autres sessions)
+- Transmise en header `X-Api-Key` via HTTPS, jamais loggée ni stockée côté serveur
+- Validée par un appel test minimal (1 token) avant tout téléchargement de sous-titres
