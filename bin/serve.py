@@ -113,8 +113,9 @@ class ProxyHandler(http.server.SimpleHTTPRequestHandler):
         if not url:
             self._json_response(400, {'error': 'URL manquante'}); return
 
+        ytdlp_cmd = [sys.executable, '-m', 'yt_dlp']
         try:
-            subprocess.run(['yt-dlp', '--version'],
+            subprocess.run(ytdlp_cmd + ['--version'],
                            capture_output=True, check=True, timeout=10)
         except Exception:
             self._json_response(503, {
@@ -125,7 +126,7 @@ class ProxyHandler(http.server.SimpleHTTPRequestHandler):
         try:
             with tempfile.TemporaryDirectory() as tmpdir:
                 r = subprocess.run(
-                    ['yt-dlp', '--flat-playlist', '--print',
+                    ytdlp_cmd + ['--flat-playlist', '--print',
                      '%(playlist_index)s. %(title)s [%(id)s]', url],
                     capture_output=True, text=True, timeout=60
                 )
@@ -139,7 +140,7 @@ class ProxyHandler(http.server.SimpleHTTPRequestHandler):
                     tpl = os.path.join(tmpdir,
                                        video['title'] + ' [%(id)s].%(ext)s')
                     subprocess.run(
-                        ['yt-dlp', '--skip-download',
+                        ytdlp_cmd + ['--skip-download',
                          '--write-auto-sub', '--sub-lang', lang,
                          '--convert-subs', 'srt',
                          '--output', tpl,
