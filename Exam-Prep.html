@@ -2689,6 +2689,17 @@ var _QGN_SYSTEM = 'Tu es un expert en création de questionnaires de certificati
   'Réponds UNIQUEMENT avec un tableau JSON valide, sans texte autour :\n' +
   '[{"domain":"...","question":"...","opt_a":"...","opt_b":"...","opt_c":"...","opt_d":"...","opt_e":"","opt_f":"","correct_idx":"0","explanation":"...","is_multi":0,"select_count":1}]';
 
+async function _validateApiKey(apiKey) {
+  try {
+    const resp = await fetch(_API_BASE+'/api/translate', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json','X-Api-Key':apiKey,'anthropic-version':'2023-06-01'},
+      body: JSON.stringify({model:'claude-haiku-4-5-20251001',max_tokens:1,messages:[{role:'user',content:'test'}]})
+    });
+    return resp.status !== 401;
+  } catch(_) { return true; }
+}
+
 async function _callClaudeQGen(apiKey, chunk, nQ, title) {
   const model      = document.getElementById('addex-yt-model')?.value || 'claude-haiku-4-5-20251001';
   const msgContent = 'Vidéo : "'+title+'"\n\nGénère exactement '+nQ+' questions à partir de ce transcript :\n\n'+chunk;
@@ -2746,13 +2757,22 @@ async function _generateFromYoutube(title, subtitle, perExam, timeMin, passT) {
   if (!ytUrl)   { showAddExamError('URL YouTube requise.'); return; }
   const _useOllama = document.getElementById('addex-yt-model')?.value === 'ollama';
   if (!_useOllama && !apiKey) { showAddExamError('Clé API Anthropic requise.'); return; }
-  if (!_useOllama) localStorage.setItem('_ak', apiKey);
-
   const btn = document.querySelector('.addex-create');
   btn.disabled = true; btn.textContent = '⏳ En cours...';
   document.getElementById('addex-err').style.display = 'none';
 
   try {
+    if (!_useOllama) {
+      const keyLine = _addexLog('Vérification de la clé API…', 'cur');
+      if (!await _validateApiKey(apiKey)) {
+        localStorage.removeItem('_ak');
+        const w = document.getElementById('addex-apikey-wrap'); if (w) w.style.display = '';
+        keyLine.textContent = 'Clé API invalide.'; keyLine.className = 'addex-progress-line err';
+        throw new Error('Clé API invalide (401). Saisissez une clé valide ci-dessus et réessayez.');
+      }
+      localStorage.setItem('_ak', apiKey);
+      keyLine.textContent = 'Clé API validée ✓'; keyLine.className = 'addex-progress-line ok';
+    }
     const logLine = _addexLog('Récupération des sous-titres via yt-dlp…', 'cur');
     const resp = await fetch(_API_BASE+'/api/transcript', {
       method:'POST',
