@@ -17,8 +17,14 @@ python3 bin/sqlite2js.py [--watch] [--clean]
 # file:// mode — just open the HTML directly, no server needed (uses the .js mirrors)
 xdg-open Exam-Prep.html
 
-# HTTP mode — also enables the /api/translate proxy (Claude Haiku translation)
-python3 bin/serve.py [--port 8080] [--host 127.0.0.1]
+# HTTP mode — enables /api/translate, /api/transcript (YouTube), /api/ollama
+python3 bin/serve.py [--port 8080] [--host 127.0.0.1] [--cors-origin ORIGIN]
+
+# Docker mode (local container test, python:3.12-slim + yt-dlp, no nginx)
+docker build -t exam-prep-local . && docker run --rm -p 8080:8080 exam-prep-local
+
+# Kubernetes (Kind) — from the cnpg-playground deployment repo
+ansible-playbook deploy-exam-prep.yml -e ingress_domain=votre-domaine.com
 ```
 
 There is no lint/build/test command for this repo. Validate changes by opening the app in a browser and exercising the affected flow (picker → lang screen → config screen → exam → results).
@@ -52,7 +58,9 @@ Key functions in `Exam-Prep.html` (second `<script>` block):
 
 **History/adaptive mode**: `sessions` / `domain_scores` / `session_answers` tables (added by `ensureResultsTables()`) track every exam taken. Adaptive mode looks at the last 3 sessions, pools questions answered correctly ≥2 times as "mastered" (15% of the draw) vs. "needs review" (85%). History can be exported/imported independently of questions via `data/results/<id>_history.sqlite`, deduplicated on `sessions.started_at` (collisions bumped by 1 second, up to 300 attempts).
 
-**Translation**: `bin/serve.py` proxies `POST /api/translate` to `api.anthropic.com/v1/messages` to bypass CORS for in-browser question translation (Claude Haiku). The API key is entered on the language screen, saved to `localStorage._ak`, and forwarded by the browser via `X-Api-Key` — never stored server-side. Translation only works in HTTP mode (not `file://`).
+**Translation**: `bin/serve.py` proxies `POST /api/translate` to `api.anthropic.com/v1/messages` to bypass CORS for in-browser question translation (Claude Haiku). The API key is entered on the language screen, saved to `sessionStorage._ak` (auto-cleared on tab/browser close), and forwarded by the browser via `X-Api-Key` — never stored server-side. Translation only works in HTTP mode (not `file://`).
+
+**YouTube → QCM**: `POST /api/transcript` downloads subtitles via the yt-dlp Python API (not subprocess — avoids PATH issues in Alpine containers). Returns 422 for missing subtitles or invalid URL. The API key is validated with a 1-token test call before any download starts; if the call returns 401, the key field is shown again. In production, pass `--cors-origin https://your-domain.com` to restrict proxy access to your origin only.
 
 <!-- rtk-instructions v2 -->
 # RTK (Rust Token Killer) - Token-Optimized Commands

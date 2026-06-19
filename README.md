@@ -6,6 +6,54 @@ apprentissage adaptatif, traduction multilingue, génération de QCM depuis YouT
 
 ---
 
+## TL;DR
+
+Application web d'entraînement aux certifications (CDMP, AI-900, DP-300, AZ-104, DP-700).
+Fichier HTML unique (`Exam-Prep.html`) + banques de questions SQLite chargées directement
+dans le navigateur via sql.js (WebAssembly). Aucune dépendance extérieure, aucun build.
+
+| Mode | Fonctionnalités | Quand l'utiliser |
+|------|-----------------|------------------|
+| **file://** | Questions, historique, adaptatif | Utilisation hors-ligne, pas de réseau |
+| **Serveur Python** | + Traduction Claude, YouTube, Ollama | Développement local |
+| **Docker** | idem serveur Python | Test en container isolé |
+| **Kubernetes** | idem + HTTPS, domaine public | Production |
+
+### Mode 1 — Double-clic (`file://`)
+
+```bash
+python3 bin/sqlite2js.py   # génère les .js (une fois, puis après chaque .sqlite/.json modifié)
+xdg-open Exam-Prep.html    # Linux  |  open Exam-Prep.html (macOS)  |  start Exam-Prep.html (Windows)
+```
+
+### Mode 2 — Serveur Python HTTP
+
+```bash
+pip install yt-dlp                     # optionnel, pour la génération depuis YouTube
+python3 bin/serve.py                   # démarre sur http://localhost:8080
+# Ouvrir : http://localhost:8080/Exam-Prep.html
+```
+
+Options utiles : `--port 3000`, `--host 0.0.0.0`, `--cors-origin https://mon-domaine.com`
+
+### Mode 3 — Docker (test local en container)
+
+```bash
+docker build -t exam-prep-local .
+docker run --rm -p 8080:8080 exam-prep-local
+# Ouvrir : http://localhost:8080/Exam-Prep.html
+```
+
+### Mode 4 — Cluster Kubernetes (Kind)
+
+```bash
+# Depuis le dépôt de déploiement cnpg-playground :
+ansible-playbook deploy-exam-prep.yml -e ingress_domain=votre-domaine.com
+# Disponible sur : https://votre-domaine.com/prep-exam/
+```
+
+---
+
 ## Table des matières
 
 1. [Arborescence](#1-arborescence)
@@ -375,8 +423,9 @@ Dans le picker, cliquer **➕ Ajouter un examen** → onglet **▶ YouTube**.
 3. Saisir la clé API Anthropic si elle n'est pas déjà mémorisée
 4. Cliquer **Créer**
 
-La clé est validée avant tout téléchargement. Elle est stockée dans `localStorage`
-du navigateur uniquement — jamais côté serveur.
+La clé est validée avant tout téléchargement. Elle est stockée dans `sessionStorage`
+du navigateur uniquement — jamais côté serveur, et effacée automatiquement à la
+fermeture de l'onglet ou du navigateur.
 
 > Nécessite le mode serveur HTTP (`python3 bin/serve.py` ou container Docker).
 
@@ -652,6 +701,6 @@ les endpoints `/api/*` comme proxy vers Anthropic.
 
 ### Sécurité de la clé API
 
-- Stockée dans `localStorage` du navigateur (scoped à l'origine, inaccessible aux autres sessions)
+- Stockée dans `sessionStorage` du navigateur — effacée automatiquement à la fermeture de l'onglet ou du navigateur
 - Transmise en header `X-Api-Key` via HTTPS, jamais loggée ni stockée côté serveur
 - Validée par un appel test minimal (1 token) avant tout téléchargement de sous-titres
