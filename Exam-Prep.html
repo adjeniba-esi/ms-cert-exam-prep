@@ -1955,7 +1955,7 @@ function _showTranslationModal(targetLang) {
     <button class="trans-cancel" onclick="_downloadServeScript()" style="margin-top:6px;color:#4db6ac">⬇ Télécharger serve.py</button>
   </div>`;
   document.body.appendChild(modal);
-  try { const k=localStorage.getItem('_ak'); if(k) document.getElementById('_tkey').value=k; } catch(_) {}
+  try { const k=sessionStorage.getItem('_ak'); if(k) document.getElementById('_tkey').value=k; } catch(_) {}
 }
 
 function _cancelTranslation() {
@@ -2078,7 +2078,7 @@ if __name__ == '__main__':
 async function _runTranslation(targetLang) {
   const key = document.getElementById('_tkey').value.trim();
   if (!key||!key.startsWith('sk-')) { document.getElementById('_tkey').style.borderColor='#e05252'; return; }
-  try { localStorage.setItem('_ak', key); } catch(_) {}
+  try { sessionStorage.setItem('_ak', key); } catch(_) {}
   document.getElementById('_tgo').disabled = true;
   document.getElementById('_tpwrap').style.display = 'block';
 
@@ -2560,7 +2560,7 @@ function onAddExamModelChange() {
   const ollamaWrap = document.getElementById('addex-ollama-wrap');
   const apikeyWrap = document.getElementById('addex-apikey-wrap');
   if (ollamaWrap) ollamaWrap.style.display = isOllama ? '' : 'none';
-  if (apikeyWrap) apikeyWrap.style.display = (isOllama || !!localStorage.getItem('_ak')) ? 'none' : '';
+  if (apikeyWrap) apikeyWrap.style.display = (isOllama || !!sessionStorage.getItem('_ak')) ? 'none' : '';
 }
 
 function onAddExamFile(input) {
@@ -2690,7 +2690,7 @@ var _QGN_SYSTEM = 'Tu es un expert en création de questionnaires de certificati
   '[{"domain":"...","question":"...","opt_a":"...","opt_b":"...","opt_c":"...","opt_d":"...","opt_e":"","opt_f":"","correct_idx":"0","explanation":"...","is_multi":0,"select_count":1}]';
 
 function _invalidateApiKey() {
-  localStorage.removeItem('_ak');
+  sessionStorage.removeItem('_ak');
   const w = document.getElementById('addex-apikey-wrap'); if (w) w.style.display = '';
 }
 
@@ -2755,7 +2755,7 @@ async function _generateFromYoutube(title, subtitle, perExam, timeMin, passT) {
   const ytUrl = document.getElementById('addex-yt-url').value.trim();
   const lang  = document.getElementById('addex-yt-lang').value;
   const qpc   = parseInt(document.getElementById('addex-yt-qpc').value) || 5;
-  let apiKey  = localStorage.getItem('_ak') || '';
+  let apiKey  = sessionStorage.getItem('_ak') || '';
   const keyEl = document.getElementById('addex-apikey');
   if (keyEl && keyEl.value.trim()) apiKey = keyEl.value.trim();
 
@@ -2774,7 +2774,7 @@ async function _generateFromYoutube(title, subtitle, perExam, timeMin, passT) {
         keyLine.textContent = 'Clé API invalide.'; keyLine.className = 'addex-progress-line err';
         throw new Error('Clé API invalide (401). Saisissez une clé valide ci-dessus et réessayez.');
       }
-      localStorage.setItem('_ak', apiKey);
+      sessionStorage.setItem('_ak', apiKey);
       keyLine.textContent = 'Clé API validée ✓'; keyLine.className = 'addex-progress-line ok';
     }
     const logLine = _addexLog('Récupération des sous-titres via yt-dlp…', 'cur');
