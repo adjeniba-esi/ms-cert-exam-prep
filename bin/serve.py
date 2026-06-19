@@ -18,6 +18,7 @@ Usage :
 Puis ouvrez : http://localhost:8080/Exam-Prep.html
 """
 import http.server, urllib.request, urllib.error, ssl, os, sys
+import json, re, subprocess, tempfile, glob
 
 PORT = 8080
 HOST = '127.0.0.1'
@@ -28,6 +29,14 @@ if '--host' in sys.argv:
 
 ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages'
 SSL_CTX = ssl.create_default_context()
+
+
+def _clean_srt(text):
+    text = re.sub(r'^\d+\s*$', '', text, flags=re.MULTILINE)
+    text = re.sub(r'\d{2}:\d{2}:\d{2},\d{3} --> \d{2}:\d{2}:\d{2},\d{3}', '', text)
+    text = re.sub(r'<[^>]+>', '', text)
+    lines = [l for l in text.splitlines() if l.strip()]
+    return '\n'.join(lines).strip()
 
 
 class ProxyHandler(http.server.SimpleHTTPRequestHandler):
@@ -41,6 +50,8 @@ class ProxyHandler(http.server.SimpleHTTPRequestHandler):
     def do_POST(self):
         if self.path == '/api/translate':
             self._proxy_to_anthropic()
+        elif self.path == '/api/transcript':
+            self._get_transcript()
         else:
             self.send_error(404, 'Not found')
 
@@ -77,6 +88,75 @@ class ProxyHandler(http.server.SimpleHTTPRequestHandler):
         self.send_header('Content-Length', str(len(data)))
         self.end_headers()
         self.wfile.write(data)
+
+    def _json_response(self, status, data):
+        body = json.dumps(data, ensure_ascii=False).encode()
+        self.send_response(status)
+        self._cors_headers()
+        self.send_header('Content-Type', 'application/json; charset=utf-8')
+        self.send_header('Content-Length', str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _get_transcript(self):
+        """Télécharge les sous-titres via yt-dlp et retourne le texte nettoyé."""
+        length = int(self.headers.get('Content-Length', 0))
+        try:
+            body = json.loads(self.rfile.read(length))
+        except Exception:
+            self._json_response(400, {'error': 'JSON invalide'}); return
+
+        url  = body.get('url', '').strip()
+        lang = (body.get('lang', 'en') or 'en').strip()
+        if not url:
+            self._json_response(400, {'error': 'URL manquante'}); return
+
+        try:
+            subprocess.run(['yt-dlp', '--version'],
+                           capture_output=True, check=True, timeout=10)
+        except Exception:
+            self._json_response(503, {
+                'error': 'yt-dlp introuvable — lancez : pip install yt-dlp'
+            }); return
+
+        transcripts = []
+        try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                r = subprocess.run(
+                    ['yt-dlp', '--flat-playlist', '--print',
+                     '%(playlist_index)s. %(title)s [%(id)s]', url],
+                    capture_output=True, text=True, timeout=60
+                )
+                videos = []
+                for line in r.stdout.splitlines():
+                    m = re.match(r'^(\d+\..+)\[([A-Za-z0-9_-]+)\]$', line.strip())
+                    if m:
+                        videos.append({'title': m.group(1).strip(), 'id': m.group(2)})
+
+                for video in videos:
+                    tpl = os.path.join(tmpdir,
+                                       video['title'] + ' [%(id)s].%(ext)s')
+                    subprocess.run(
+                        ['yt-dlp', '--skip-download',
+                         '--write-auto-sub', '--sub-lang', lang,
+                         '--convert-subs', 'srt',
+                         '--output', tpl,
+                         'https://youtu.be/' + video['id']],
+                        capture_output=True, timeout=60
+                    )
+                    matches = glob.glob(
+                        os.path.join(tmpdir, '*' + video['id'] + '*.srt'))
+                    if matches:
+                        with open(matches[0], encoding='utf-8', errors='ignore') as f:
+                            raw = f.read()
+                        txt = _clean_srt(raw)
+                        if txt:
+                            transcripts.append(
+                                {'title': video['title'], 'text': txt})
+        except Exception as e:
+            self._json_response(500, {'error': str(e)}); return
+
+        self._json_response(200, {'transcripts': transcripts})
 
     def end_headers(self):
         # Ne pas cacher les ressources dynamiques ni le HTML en mode dev

@@ -424,12 +424,12 @@
   .addex-field{margin-bottom:14px}
   .addex-field label{display:block;font-size:11px;font-family:var(--font-mono);
     color:#64748b;letter-spacing:.08em;text-transform:uppercase;margin-bottom:5px}
-  .addex-field input[type=text],.addex-field input[type=number]{
+  .addex-field input[type=text],.addex-field input[type=number],.addex-field input[type=password],.addex-field select{
     width:100%;background:#0b0f1a;border:.5px solid #1e293b;
     border-radius:8px;padding:8px 12px;font-size:13px;
     font-family:var(--font-mono);color:#c8d6e5;outline:none;
     box-sizing:border-box;transition:border-color .15s}
-  .addex-field input:focus{border-color:#4db6ac}
+  .addex-field input:focus,.addex-field select:focus{border-color:#4db6ac}
   .addex-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
   .addex-upload{display:flex;align-items:center;gap:10px;
     background:#0b0f1a;border:.5px dashed #1e293b;border-radius:8px;
@@ -448,6 +448,15 @@
     border-radius:8px;font-size:12px;color:#475569;cursor:pointer;
     font-family:var(--font-mono)}
   .addex-error{font-size:11px;color:#f87171;margin-top:8px;display:none}
+  .addex-tabs{display:flex;margin-bottom:10px;border:.5px solid #1e293b;border-radius:6px;overflow:hidden}
+  .addex-tab{flex:1;padding:8px 12px;background:transparent;border:none;color:#64748b;font-family:var(--font-mono);font-size:11px;cursor:pointer;transition:background .15s,color .15s}
+  .addex-tab.active{background:#1e293b;color:#4db6ac}
+  .addex-tab:hover:not(.active){background:rgba(30,41,59,.4);color:#94a3b8}
+  .addex-progress{background:#0b0f1a;border:.5px solid #1e293b;border-radius:6px;padding:10px 12px;margin-top:10px;font-family:var(--font-mono);font-size:11px;color:#64748b;max-height:160px;overflow-y:auto;display:none}
+  .addex-progress-line{padding:1px 0;line-height:1.6}
+  .addex-progress-line.ok{color:#4db6ac}
+  .addex-progress-line.err{color:#f87171}
+  .addex-progress-line.cur{color:#e2e8f0}
 
   .hist-io{display:flex;gap:8px;margin-bottom:1.2rem;flex-wrap:wrap}
   .hist-io-btn{font-family:var(--font-mono);font-size:11px;padding:5px 14px;
@@ -767,16 +776,43 @@
         </div>
       </div>
       <div class="addex-field">
-        <label>Base de questions (SQLite optionnel)</label>
-        <label class="addex-upload" id="addex-upload-lbl">
-          <span class="addex-upload-icon">📁</span>
-          <span class="addex-upload-text" id="addex-upload-txt">
-            Importer un fichier .sqlite<br>
-            <small style="opacity:.6">Laisser vide pour démarrer sans questions</small>
-          </span>
-          <input type="file" accept=".sqlite,.db" id="addex-file"
-                 onchange="onAddExamFile(this)">
-        </label>
+        <label>Source des questions</label>
+        <div class="addex-tabs">
+          <button class="addex-tab active" id="tab-file" onclick="showAddExamTab('file')">📁 Fichier SQLite</button>
+          <button class="addex-tab" id="tab-yt" onclick="showAddExamTab('youtube')">▶ YouTube</button>
+        </div>
+        <div id="addex-source-file">
+          <label class="addex-upload" id="addex-upload-lbl">
+            <span class="addex-upload-icon">📁</span>
+            <span class="addex-upload-text" id="addex-upload-txt">
+              Importer un fichier .sqlite<br>
+              <small style="opacity:.6">Laisser vide pour démarrer sans questions</small>
+            </span>
+            <input type="file" accept=".sqlite,.db" id="addex-file"
+                   onchange="onAddExamFile(this)">
+          </label>
+        </div>
+        <div id="addex-source-yt" style="display:none">
+          <input type="text" id="addex-yt-url" placeholder="https://youtube.com/playlist?list=... ou https://youtu.be/...">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px">
+            <div>
+              <label>Langue sous-titres</label>
+              <select id="addex-yt-lang">
+                <option value="fr">fr — Français</option>
+                <option value="en" selected>en — English</option>
+              </select>
+            </div>
+            <div>
+              <label>Questions / segment</label>
+              <input type="number" id="addex-yt-qpc" value="5" min="1" max="15">
+            </div>
+          </div>
+          <div id="addex-apikey-wrap" style="margin-top:8px">
+            <label>Clé API Anthropic <small style="opacity:.6;font-weight:400">(nécessaire pour générer les questions)</small></label>
+            <input type="password" id="addex-apikey" placeholder="sk-ant-...">
+          </div>
+          <div class="addex-progress" id="addex-progress"></div>
+        </div>
       </div>
       <div class="addex-error" id="addex-err"></div>
       <div class="addex-actions">
@@ -2402,6 +2438,7 @@ async function importDB(file) {
 // ── Custom Exams (localStorage + IndexedDB) ──────────────────────────────────
 const CUSTOM_KEY  = '_exam_custom_quizzes_v1';
 let   _addexFile  = null;   // fichier SQLite sélectionné pour le nouvel examen
+let   _addexMode  = 'file'; // 'file' | 'youtube'
 
 // Charger les examens personnalisés depuis localStorage
 function loadCustomExams() {
@@ -2447,12 +2484,49 @@ function showAddExamModal() {
   document.getElementById('addex-err').style.display = 'none';
   document.getElementById('addex-file').value = '';
   _addexFile = null;
+  showAddExamTab('file');
   document.getElementById('addex-overlay').style.display = 'flex';
 }
 
 function hideAddExamModal() {
   document.getElementById('addex-overlay').style.display = 'none';
   _addexFile = null;
+  _addexMode = 'file';
+  const btn = document.querySelector('.addex-create');
+  if (btn) { btn.disabled = false; btn.textContent = "Créer l'examen →"; }
+}
+
+function showAddExamTab(mode) {
+  _addexMode = mode;
+  document.getElementById('addex-source-file').style.display = mode === 'file' ? '' : 'none';
+  document.getElementById('addex-source-yt').style.display   = mode === 'youtube' ? '' : 'none';
+  document.getElementById('tab-file').classList.toggle('active', mode === 'file');
+  document.getElementById('tab-yt').classList.toggle('active',   mode === 'youtube');
+  const btn = document.querySelector('.addex-create');
+  if (btn) btn.textContent = mode === 'youtube' ? 'Générer →' : "Créer l'examen →";
+  if (mode === 'youtube') {
+    const wrap = document.getElementById('addex-apikey-wrap');
+    if (wrap) wrap.style.display = localStorage.getItem('_ak') ? 'none' : '';
+  }
+  const prog = document.getElementById('addex-progress');
+  if (prog) { prog.innerHTML = ''; prog.style.display = 'none'; }
+}
+
+function _addexLog(msg, cls) {
+  const prog = document.getElementById('addex-progress');
+  prog.style.display = 'block';
+  const div = document.createElement('div');
+  div.className = 'addex-progress-line' + (cls ? ' ' + cls : '');
+  div.textContent = msg;
+  prog.appendChild(div);
+  prog.scrollTop = prog.scrollHeight;
+  return div;
+}
+
+function showAddExamError(msg) {
+  const err = document.getElementById('addex-err');
+  err.textContent = '⚠️ ' + msg;
+  err.style.display = 'block';
 }
 
 function onAddExamFile(input) {
@@ -2478,6 +2552,11 @@ async function confirmAddExam() {
   const passT    = parseInt(document.getElementById('addex-pass').value)   || 70;
 
   if (!title) { err.textContent = '⚠️ Le nom est requis.'; err.style.display='block'; return; }
+
+  if (_addexMode === 'youtube') {
+    await _generateFromYoutube(title, subtitle, perExam, timeMin, passT);
+    return;
+  }
 
   const id    = 'custom_' + Date.now();
   const dbKey = id + '_db';
@@ -2548,6 +2627,159 @@ function _createBlankDB() {
   const data = db.export();
   db.close();
   return data;
+}
+
+function _chunkText(text, maxWords) {
+  maxWords = maxWords || 1500;
+  var paras = text.split(/\n{2,}/).map(function(p){return p.trim();}).filter(Boolean);
+  var chunks = [], cur = [], count = 0;
+  paras.forEach(function(p) {
+    var w = p.split(/\s+/).length;
+    if (count + w > maxWords && cur.length) { chunks.push(cur.join('\n\n')); cur=[p]; count=w; }
+    else { cur.push(p); count+=w; }
+  });
+  if (cur.length) chunks.push(cur.join('\n\n'));
+  return chunks;
+}
+
+var _QGN_SYSTEM = 'Tu es un expert en création de questionnaires de certification professionnelle.\n' +
+  'À partir d\'un extrait de transcript, génère des questions QCM de haute qualité.\n\n' +
+  'Règles :\n' +
+  '- Questions basées UNIQUEMENT sur le contenu fourni\n' +
+  '- 4 à 6 options plausibles (distracteurs crédibles)\n' +
+  '- Multi-choix : mentionner explicitement \'Sélectionnez X réponses\'\n' +
+  '- "domain" : thème court (2-4 mots) représentatif du sujet\n' +
+  '- Explication : justifier la bonne réponse et éclaircir les mauvaises\n' +
+  '- Même langue que le transcript fourni\n' +
+  '- correct_idx : index 0-based (\'2\') ou liste multi-choix (\'0,2\')\n\n' +
+  'Réponds UNIQUEMENT avec un tableau JSON valide, sans texte autour :\n' +
+  '[{"domain":"...","question":"...","opt_a":"...","opt_b":"...","opt_c":"...","opt_d":"...","opt_e":"","opt_f":"","correct_idx":"0","explanation":"...","is_multi":0,"select_count":1}]';
+
+async function _callClaudeQGen(apiKey, chunk, nQ, title) {
+  const body = JSON.stringify({
+    model: 'claude-haiku-4-5-20251001',
+    max_tokens: 4096,
+    system: _QGN_SYSTEM,
+    messages: [{role:'user', content: 'Vidéo : "'+title+'"\n\nGénère exactement '+nQ+' questions à partir de ce transcript :\n\n'+chunk}]
+  });
+  const resp = await fetch('/api/translate', {
+    method:'POST',
+    headers:{'Content-Type':'application/json','X-Api-Key':apiKey,'anthropic-version':'2023-06-01'},
+    body
+  });
+  if (!resp.ok) {
+    const e = await resp.json().catch(()=>({}));
+    throw new Error('API '+resp.status+' : '+((e.error&&e.error.message)||'Erreur'));
+  }
+  const data = await resp.json();
+  const text = data.content[0].text;
+  const m = text.match(/\[[\s\S]*\]/);
+  if (!m) throw new Error('Pas de JSON dans la réponse Claude');
+  return JSON.parse(m[0]);
+}
+
+function _insertQuestionsIntoDB(db, questions) {
+  var inserted=0, skipped=0;
+  questions.forEach(function(q) {
+    try {
+      db.run(
+        'INSERT INTO questions (domain,question,opt_a,opt_b,opt_c,opt_d,opt_e,opt_f,correct_idx,explanation,is_multi,select_count) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
+        [q.domain||'General',q.question,q.opt_a||'',q.opt_b||'',q.opt_c||'',q.opt_d||'',q.opt_e||'',q.opt_f||'',String(q.correct_idx||'0'),q.explanation||'',q.is_multi?1:0,q.select_count||1]
+      );
+      inserted++;
+    } catch(e) { skipped++; }
+  });
+  return {inserted, skipped};
+}
+
+async function _generateFromYoutube(title, subtitle, perExam, timeMin, passT) {
+  if (!location.protocol.startsWith('http')) {
+    showAddExamError('Cette fonctionnalité nécessite le mode HTTP. Lancez : python bin/serve.py'); return;
+  }
+  const ytUrl = document.getElementById('addex-yt-url').value.trim();
+  const lang  = document.getElementById('addex-yt-lang').value;
+  const qpc   = parseInt(document.getElementById('addex-yt-qpc').value) || 5;
+  let apiKey  = localStorage.getItem('_ak') || '';
+  const keyEl = document.getElementById('addex-apikey');
+  if (keyEl && keyEl.value.trim()) apiKey = keyEl.value.trim();
+
+  if (!ytUrl)   { showAddExamError('URL YouTube requise.'); return; }
+  if (!apiKey)  { showAddExamError('Clé API Anthropic requise.'); return; }
+
+  localStorage.setItem('_ak', apiKey);
+
+  const btn = document.querySelector('.addex-create');
+  btn.disabled = true; btn.textContent = '⏳ En cours...';
+  document.getElementById('addex-err').style.display = 'none';
+
+  try {
+    const logLine = _addexLog('Récupération des sous-titres via yt-dlp…', 'cur');
+    const resp = await fetch('/api/transcript', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({url:ytUrl, lang})
+    });
+    if (!resp.ok) {
+      const e = await resp.json().catch(()=>({}));
+      throw new Error(e.error || 'Erreur serveur '+resp.status);
+    }
+    const {transcripts} = await resp.json();
+    if (!transcripts || !transcripts.length)
+      throw new Error('Aucun sous-titre trouvé. Vérifiez l\'URL et la langue.');
+    logLine.className = 'addex-progress-line ok';
+    logLine.textContent = transcripts.length+' vidéo(s) — sous-titres récupérés.';
+
+    const db = new SQL.Database();
+    db.run(`CREATE TABLE questions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      domain TEXT NOT NULL DEFAULT 'General', question TEXT NOT NULL,
+      opt_a TEXT NOT NULL DEFAULT '', opt_b TEXT NOT NULL DEFAULT '',
+      opt_c TEXT NOT NULL DEFAULT '', opt_d TEXT NOT NULL DEFAULT '',
+      opt_e TEXT DEFAULT '', opt_f TEXT DEFAULT '',
+      correct_idx TEXT NOT NULL DEFAULT '0', explanation TEXT NOT NULL DEFAULT '',
+      is_complex INTEGER NOT NULL DEFAULT 0,
+      is_multi INTEGER NOT NULL DEFAULT 0, select_count INTEGER NOT NULL DEFAULT 1);
+    CREATE UNIQUE INDEX uq_question ON questions(question);
+    CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT);
+    INSERT INTO meta VALUES ('version','1'),('question_count','0');`);
+
+    var totalInserted = 0;
+    for (var ti=0; ti<transcripts.length; ti++) {
+      var tr = transcripts[ti];
+      _addexLog('▶ '+tr.title);
+      var chunks = _chunkText(tr.text, 1500);
+      for (var ci=0; ci<chunks.length; ci++) {
+        var segLine = _addexLog('  Segment '+(ci+1)+'/'+chunks.length+'…', 'cur');
+        try {
+          var qs = await _callClaudeQGen(apiKey, chunks[ci], qpc, tr.title);
+          var res = _insertQuestionsIntoDB(db, qs);
+          totalInserted += res.inserted;
+          segLine.textContent = '  Segment '+(ci+1)+'/'+chunks.length+' → '+res.inserted+' question(s)';
+          segLine.className   = 'addex-progress-line ok';
+        } catch(e) {
+          segLine.textContent = '  Segment '+(ci+1)+' — ERREUR : '+e.message;
+          segLine.className   = 'addex-progress-line err';
+        }
+      }
+    }
+
+    if (!totalInserted) throw new Error('Aucune question générée. Vérifiez la clé API et les sous-titres.');
+
+    db.run("INSERT OR REPLACE INTO meta VALUES ('question_count',?)",[String(totalInserted)]);
+    const dbData = db.export(); db.close();
+    _addexLog('✓ '+totalInserted+' question(s) générée(s).', 'ok');
+
+    const id='custom_'+Date.now(), dbKey=id+'_db';
+    await idbSet(dbKey, dbData);
+    QUESTIONNAIRES.push({id,title,subtitle:subtitle||title,description:'Généré depuis YouTube',
+      dbKey,version:1,perExam,timeMin,passThreshold:passT,cssClass:'custom',isCustom:true});
+    _saveCustomMeta();
+    hideAddExamModal();
+    _renderPicker();
+  } catch(e) {
+    _addexLog('Erreur : '+e.message, 'err');
+    btn.disabled=false; btn.textContent='Générer →';
+  }
 }
 
 const _ORG_IDS = {
