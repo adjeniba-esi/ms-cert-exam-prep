@@ -209,6 +209,8 @@
   .hist-meta{font-size:12px;color:var(--text-muted);margin-left:auto}
   .hist-row-short{opacity:0.5}
   .hist-short-badge{font-family:var(--font-mono);font-size:9px;color:var(--text-dim);background:var(--surface2);border:0.5px solid var(--border);border-radius:99px;padding:1px 6px;margin-left:4px;vertical-align:middle}
+  .hist-del-btn{background:none;border:none;cursor:pointer;color:var(--text-dim);font-size:13px;line-height:1;padding:2px 6px;border-radius:var(--radius);margin-left:6px;opacity:0.5;transition:opacity .15s,color .15s}
+  .hist-del-btn:hover{opacity:1;color:var(--red)}
   .hist-domains{padding:0 16px 14px;display:none;flex-direction:column;gap:6px}
   .hist-domains.open{display:flex}
   .hist-d-row{display:flex;align-items:center;gap:8px}
@@ -2995,7 +2997,8 @@ function renderHistory(sRows, dRows, aRows) {
       html += '<span class="hist-date">' + (s.quizTitle ? '<span style="font-family:var(--font-mono);font-size:9px;color:var(--gold);margin-right:5px">' + s.quizTitle + '</span>' : '') + fmtDate(s.date) + '</span>';
       html += '<span class="hist-pct">'+s.pct+'%</span>';
       html += '<span class="hist-badge '+(ok?'pass':'fail')+'">'+(ok?'Pass':'Fail')+'</span>';
-      html += '<span class="hist-meta">'+s.attempted+' Qs · '+fmtDur(s.dur)+(s.dur<300?' <span class="hist-short-badge">&lt;5min</span>':'')+'</span></div>';
+      html += '<span class="hist-meta">'+s.attempted+' Qs · '+fmtDur(s.dur)+(s.dur<300?' <span class="hist-short-badge">&lt;5min</span>':'')+'</span>';
+      html += '<button class="hist-del-btn" onclick="event.stopPropagation();deleteSession('+s.id+')" title="Supprimer cet essai">&#x2715;</button></div>';
       const doms = dmap[s.id]||[];
       if (doms.length) {
         html += '<div class="hist-domains" id="hd-'+s.id+'">';
@@ -3076,6 +3079,17 @@ async function deleteShortSessions() {
     showHistory();
     dbStatus(count + ' session(s) supprimee(s)');
   } catch(e) { console.warn('deleteShortSessions failed:', e); }
+}
+
+async function deleteSession(id) {
+  if (!DB || !confirm('Supprimer cet essai ?')) return;
+  try {
+    try { DB.run('DELETE FROM session_answers WHERE session_id=?', [id]); } catch(_) {}
+    DB.run('DELETE FROM domain_scores WHERE session_id=?', [id]);
+    DB.run('DELETE FROM sessions WHERE id=?', [id]);
+    await persistDB();
+    showHistory();
+  } catch(e) { console.warn('deleteSession failed:', e); }
 }
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
