@@ -31,21 +31,28 @@ sqlite3 data/content/<id>.sqlite < sql/00_full_schema.sql   # full schema in one
 
 ## Architecture
 
-**Two-tier data loading, no CORS dependency in file:// mode.** Every JSON/SQLite asset has a generated `.js` twin (via `bin/sqlite2js.py`) that assigns its content to a `window.__EXAM_*` global as base64; `<script src>` tags aren't subject to CORS the way `fetch()` is. The loading cascade, implemented in `Exam-Prep.html`, always tries in this order: (1) already-loaded `window.__EXAM_*` global, (2) `loadScript()` the `.js` file, (3) `fetch()` the raw `.json`/`.sqlite` (HTTP mode only), (4) prompt the user for manual file `<input>` (`_promptManualImport`, ~line 1308). **Any time you add or rename a data file, you must rerun `bin/sqlite2js.py`** or the new file won't be visible in file:// mode.
+**Two-tier data loading, no CORS dependency in file:// mode.** Every JSON/SQLite asset has a generated `.js` twin (via `bin/sqlite2js.py`) that assigns its content to a `window.__EXAM_*` global as base64; `<script src>` tags aren't subject to CORS the way `fetch()` is. The loading cascade always tries in this order: (1) already-loaded `window.__EXAM_*` global, (2) `loadScript()` the `.js` file, (3) `fetch()` the raw `.json`/`.sqlite` (HTTP mode only), (4) prompt the user for manual file `<input>` (`_promptManualImport`, ~line 1301). **Any time you add or rename a data file, you must rerun `bin/sqlite2js.py`** or the new file won't be visible in file:// mode.
 
-Key functions in `Exam-Prep.html` (second `<script>` block, starting ~line 939):
-- `initSQLjs()` (~1108) — loads sql.js WASM once.
-- `loadExamDefinitions()` (~1418) — walks `exams/index.json` then each `exams/<id>.json` through the cascade above.
-- `loadQuiz(quiz)` (~1119) — per-exam entry point: checks IndexedDB cache (`idbGet`, key `<id>_db`) against `meta.version`; on miss, loads the content DB then the optional results DB via `_loadDataAsset` (~1284), merges history (`_mergeResultsInto`, ~1340), and calls `ensureResultsTables()` (~1043) to add history tables if missing.
-- `_renderPicker()` (~2468) → `showLangScreen()` (~1711) → `showConfigScreen()` (~2050) → `startExam()` (~2498).
+**sql.js WASM is embedded directly in `Exam-Prep.html`** as `const _WASM_B64 = '...'` (~line 927). The app is fully offline-capable with no CDN or external network dependencies.
+
+Key functions in `Exam-Prep.html` (second `<script>` block):
+- `initSQLjs()` (~1098) — decodes `_WASM_B64` into a Blob URL and initialises sql.js WASM once.
+- `loadQuiz(quiz)` (~1109) — per-exam entry point: checks IndexedDB cache (`idbGet`, key `<id>_db`) against `meta.version`; on miss, loads the content DB then the optional results DB via `_loadDataAsset` (~1277), merges history (`_mergeResultsInto`, ~1333), and calls `ensureResultsTables()` (~1033) to add history tables if missing.
+- `_renderPicker()` (~2488) → `showLangScreen()` (~1706) → `showConfigScreen()` (~2070) → `startExam()` (~2517).
+
+**Cache invalidation — two separate mechanisms:**
+- Bump `version` in `exams/<id>.json` (and regenerate `.js`) to force one exam's content to reload from source.
+- Bump `_QDB_VERSION` (~line 968 in `Exam-Prep.html`) to invalidate the IndexedDB cache for *all* exams globally — use only when the IDB schema itself changes.
 
 **Exam registration is purely declarative**: add a row to `exams/index.json`, add `exams/<id>.json` (id/title/perExam/timeMin/passThreshold/contentFile/resultsFile — see README §5 for the full field list), drop the question bank at `data/content/<id>.sqlite`, then regenerate `.js` files. No code changes needed for a new exam.
+
+**Custom exams** (created via the "+ Add exam" button in the picker) store metadata in `localStorage` under the key `_exam_custom_quizzes_v1` and their SQLite DB in IndexedDB. They follow the same `loadQuiz` path as bundled exams.
 
 **Question schema** (`questions` table, see README §4.1): single-select exams (CDMP, AI-900) use the 4-option/no-multi schema; DP-300/AZ-104/DP-700 and custom imports use the extended schema with `opt_e`/`opt_f`, `is_multi`, `select_count`. `correct_idx` is TEXT to support both a single index (`"2"`) and multi-select lists (`"0,2"`). The answer is never kept as a raw index client-side — the app stores a SHA-1 hash of the correct option's text to prevent DOM inspection from revealing it.
 
 **History/adaptive mode**: `sessions` / `domain_scores` / `session_answers` tables (added by `ensureResultsTables()`) track every exam taken. Adaptive mode looks at the last 3 sessions, pools questions answered correctly ≥2 times as "mastered" (15% of the draw) vs. "needs review" (85%). History can be exported/imported independently of questions via `data/results/<id>_history.sqlite`, deduplicated on `sessions.started_at` (collisions bumped by 1 second, up to 300 attempts).
 
-**`bin/serve.py`** also proxies `POST /api/translate` to `api.anthropic.com/v1/messages` purely to dodge CORS for in-browser question translation (Claude Haiku); the API key comes from the browser via `X-Api-Key` and is never stored server-side.
+**Translation**: `bin/serve.py` proxies `POST /api/translate` to `api.anthropic.com/v1/messages` to bypass CORS for in-browser question translation (Claude Haiku). The API key is entered on the language screen, saved to `localStorage._ak`, and forwarded by the browser via `X-Api-Key` — never stored server-side. Translation only works in HTTP mode (not `file://`).
 
 <!-- rtk-instructions v2 -->
 # RTK (Rust Token Killer) - Token-Optimized Commands
