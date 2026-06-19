@@ -2998,7 +2998,7 @@ function renderHistory(sRows, dRows, aRows) {
       html += '<span class="hist-pct">'+s.pct+'%</span>';
       html += '<span class="hist-badge '+(ok?'pass':'fail')+'">'+(ok?'Pass':'Fail')+'</span>';
       html += '<span class="hist-meta">'+s.attempted+' Qs · '+fmtDur(s.dur)+(s.dur<300?' <span class="hist-short-badge">&lt;5min</span>':'')+'</span>';
-      html += '<button class="hist-del-btn" onclick="event.stopPropagation();deleteSession('+s.id+')" title="Supprimer cet essai">&#x2715;</button></div>';
+      html += (s.dur<300 ? '<button class="hist-del-btn" onclick="event.stopPropagation();deleteSession('+s.id+')" title="Supprimer cet essai">&#x2715;</button>' : '') + '</div>';
       const doms = dmap[s.id]||[];
       if (doms.length) {
         html += '<div class="hist-domains" id="hd-'+s.id+'">';
