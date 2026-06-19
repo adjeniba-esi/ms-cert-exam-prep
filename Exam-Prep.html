@@ -2689,12 +2689,17 @@ var _QGN_SYSTEM = 'Tu es un expert en création de questionnaires de certificati
   'Réponds UNIQUEMENT avec un tableau JSON valide, sans texte autour :\n' +
   '[{"domain":"...","question":"...","opt_a":"...","opt_b":"...","opt_c":"...","opt_d":"...","opt_e":"","opt_f":"","correct_idx":"0","explanation":"...","is_multi":0,"select_count":1}]';
 
+function _invalidateApiKey() {
+  localStorage.removeItem('_ak');
+  const w = document.getElementById('addex-apikey-wrap'); if (w) w.style.display = '';
+}
+
 async function _validateApiKey(apiKey) {
   try {
     const resp = await fetch(_API_BASE+'/api/translate', {
       method: 'POST',
       headers: {'Content-Type':'application/json','X-Api-Key':apiKey,'anthropic-version':'2023-06-01'},
-      body: JSON.stringify({model:'claude-haiku-4-5-20251001',max_tokens:1,messages:[{role:'user',content:'test'}]})
+      body: JSON.stringify({model:document.getElementById('addex-yt-model')?.value||'claude-haiku-4-5-20251001',max_tokens:1,messages:[{role:'user',content:'test'}]})
     });
     return resp.status !== 401;
   } catch(_) { return true; }
@@ -2765,8 +2770,7 @@ async function _generateFromYoutube(title, subtitle, perExam, timeMin, passT) {
     if (!_useOllama) {
       const keyLine = _addexLog('Vérification de la clé API…', 'cur');
       if (!await _validateApiKey(apiKey)) {
-        localStorage.removeItem('_ak');
-        const w = document.getElementById('addex-apikey-wrap'); if (w) w.style.display = '';
+        _invalidateApiKey();
         keyLine.textContent = 'Clé API invalide.'; keyLine.className = 'addex-progress-line err';
         throw new Error('Clé API invalide (401). Saisissez une clé valide ci-dessus et réessayez.');
       }
@@ -2784,8 +2788,6 @@ async function _generateFromYoutube(title, subtitle, perExam, timeMin, passT) {
       throw new Error(e.error || 'Erreur serveur '+resp.status);
     }
     const {transcripts} = await resp.json();
-    if (!transcripts || !transcripts.length)
-      throw new Error('Aucun sous-titre trouvé. Vérifiez l\'URL et la langue.');
     logLine.className = 'addex-progress-line ok';
     logLine.textContent = transcripts.length+' vidéo(s) — sous-titres récupérés.';
 
@@ -2820,8 +2822,7 @@ async function _generateFromYoutube(title, subtitle, perExam, timeMin, passT) {
           segLine.textContent = '  Segment '+(ci+1)+' — ERREUR : '+e.message;
           segLine.className   = 'addex-progress-line err';
           if (e.message.includes('401')) {
-            localStorage.removeItem('_ak');
-            const w=document.getElementById('addex-apikey-wrap'); if(w) w.style.display='';
+            _invalidateApiKey();
             throw new Error('Clé API invalide (401). Corrigez-la ci-dessus et réessayez.');
           }
         }

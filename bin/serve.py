@@ -124,19 +124,11 @@ class ProxyHandler(http.server.SimpleHTTPRequestHandler):
                 'error': 'yt-dlp introuvable — lancez : pip install yt-dlp'
             }); return
 
-        videos = []
-        transcripts = []
         try:
             with tempfile.TemporaryDirectory() as tmpdir:
-                # Lister les vidéos (fonctionne pour vidéo unique et playlist)
                 with _yt_dlp.YoutubeDL({'quiet': True, 'no_warnings': True,
                                          'extract_flat': True}) as ydl:
                     info = ydl.extract_info(url, download=False)
-
-                if info is None:
-                    self._json_response(200, {
-                        'error': 'Impossible de lire l\'URL. Vérifiez qu\'elle est accessible.'
-                    }); return
 
                 if 'entries' in info:
                     videos = [{'id': e['id'], 'title': e.get('title', e['id'])}
@@ -144,8 +136,14 @@ class ProxyHandler(http.server.SimpleHTTPRequestHandler):
                 else:
                     videos = [{'id': info['id'], 'title': info.get('title', info['id'])}]
 
-                # lang.* matche fr-FR, fr-BE, en-orig, etc.
-                sub_langs = [lang + '.*', lang]
+                if not videos:
+                    self._json_response(422, {
+                        'error': 'Impossible de lister les vidéos. Vérifiez l\'URL.'
+                    }); return
+
+                # lang.* (glob) matche fr-FR, fr-BE, en-orig, etc.
+                sub_langs = [lang + '.*']
+                transcripts = []
                 for video in videos:
                     ydl_opts = {
                         'quiet': True, 'no_warnings': True,
@@ -167,18 +165,15 @@ class ProxyHandler(http.server.SimpleHTTPRequestHandler):
                         if txt:
                             transcripts.append({'title': video['title'], 'text': txt})
 
-        except Exception as e:
-            self._json_response(500, {'error': str(e)}); return
+                if not transcripts:
+                    self._json_response(422, {
+                        'error': f'Aucun sous-titre "{lang}" trouvé. Essayez l\'autre langue dans le sélecteur.'
+                    }); return
 
-        if not videos:
-            self._json_response(200, {
-                'error': 'Impossible de lister les vidéos. Vérifiez l\'URL.'
-            }); return
-        if not transcripts:
-            self._json_response(200, {
-                'error': f'Aucun sous-titre "{lang}" trouvé. Essayez l\'autre langue dans le sélecteur.'
-            }); return
-        self._json_response(200, {'transcripts': transcripts})
+                self._json_response(200, {'transcripts': transcripts})
+
+        except Exception as e:
+            self._json_response(500, {'error': str(e)})
 
     def _proxy_to_ollama(self):
         """Proxifie une requête vers une instance Ollama locale."""
