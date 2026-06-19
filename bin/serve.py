@@ -18,7 +18,13 @@ Usage :
 Puis ouvrez : http://localhost:8080/Exam-Prep.html
 """
 import http.server, urllib.request, urllib.error, ssl, os, sys
-import json, re, subprocess, tempfile, glob
+import json, re, tempfile, glob
+
+try:
+    import yt_dlp as _yt_dlp
+    _YTDLP_OK = True
+except ImportError:
+    _YTDLP_OK = False
 
 PORT = 8080
 HOST = '127.0.0.1'
@@ -101,7 +107,7 @@ class ProxyHandler(http.server.SimpleHTTPRequestHandler):
         self.wfile.write(body)
 
     def _get_transcript(self):
-        """Télécharge les sous-titres via yt-dlp et retourne le texte nettoyé."""
+        """Télécharge les sous-titres via l'API Python yt-dlp."""
         length = int(self.headers.get('Content-Length', 0))
         try:
             body = json.loads(self.rfile.read(length))
@@ -113,61 +119,60 @@ class ProxyHandler(http.server.SimpleHTTPRequestHandler):
         if not url:
             self._json_response(400, {'error': 'URL manquante'}); return
 
-        ytdlp_cmd = [sys.executable, '-m', 'yt_dlp']
-        try:
-            subprocess.run(ytdlp_cmd + ['--version'],
-                           capture_output=True, check=True, timeout=10)
-        except Exception:
+        if not _YTDLP_OK:
             self._json_response(503, {
                 'error': 'yt-dlp introuvable — lancez : pip install yt-dlp'
             }); return
 
+        videos = []
         transcripts = []
         try:
             with tempfile.TemporaryDirectory() as tmpdir:
-                # %(playlist_index)s vaut "NA" pour une vidéo unique → on utilise
-                # un format sans index, séparé par TAB, valide pour vidéo et playlist
-                r = subprocess.run(
-                    ytdlp_cmd + ['--flat-playlist', '--print', '%(id)s\t%(title)s', url],
-                    capture_output=True, text=True, timeout=60
-                )
-                videos = []
-                for line in r.stdout.splitlines():
-                    line = line.strip()
-                    if '\t' in line:
-                        vid_id, title = line.split('\t', 1)
-                        vid_id = vid_id.strip()
-                        if re.match(r'^[A-Za-z0-9_-]{6,20}$', vid_id):
-                            videos.append({'title': title.strip(), 'id': vid_id})
+                # Lister les vidéos (fonctionne pour vidéo unique et playlist)
+                with _yt_dlp.YoutubeDL({'quiet': True, 'no_warnings': True,
+                                         'extract_flat': True}) as ydl:
+                    info = ydl.extract_info(url, download=False)
 
-                # Pattern lang.* pour matcher fr-FR, fr-BE, en-orig, etc.
-                sub_lang = lang + '.*,' + lang
+                if info is None:
+                    self._json_response(200, {
+                        'error': 'Impossible de lire l\'URL. Vérifiez qu\'elle est accessible.'
+                    }); return
+
+                if 'entries' in info:
+                    videos = [{'id': e['id'], 'title': e.get('title', e['id'])}
+                              for e in (info['entries'] or []) if e and e.get('id')]
+                else:
+                    videos = [{'id': info['id'], 'title': info.get('title', info['id'])}]
+
+                # lang.* matche fr-FR, fr-BE, en-orig, etc.
+                sub_langs = [lang + '.*', lang]
                 for video in videos:
-                    tpl = os.path.join(tmpdir, '%(id)s.%(ext)s')
-                    subprocess.run(
-                        ytdlp_cmd + ['--skip-download',
-                         '--write-sub', '--write-auto-sub',
-                         '--sub-lang', sub_lang,
-                         '--convert-subs', 'srt',
-                         '--output', tpl,
-                         'https://youtu.be/' + video['id']],
-                        capture_output=True, timeout=60
-                    )
-                    matches = glob.glob(
-                        os.path.join(tmpdir, video['id'] + '*.srt'))
+                    ydl_opts = {
+                        'quiet': True, 'no_warnings': True,
+                        'skip_download': True,
+                        'writesubtitles': True,
+                        'writeautomaticsub': True,
+                        'subtitleslangs': sub_langs,
+                        'subtitlesformat': 'srt',
+                        'outtmpl': os.path.join(tmpdir, video['id'] + '.%(ext)s'),
+                    }
+                    with _yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                        ydl.download(['https://youtu.be/' + video['id']])
+
+                    matches = glob.glob(os.path.join(tmpdir, video['id'] + '*.srt'))
                     if matches:
                         with open(matches[0], encoding='utf-8', errors='ignore') as f:
                             raw = f.read()
                         txt = _clean_srt(raw)
                         if txt:
-                            transcripts.append(
-                                {'title': video['title'], 'text': txt})
+                            transcripts.append({'title': video['title'], 'text': txt})
+
         except Exception as e:
             self._json_response(500, {'error': str(e)}); return
 
-        if not transcripts and not videos:
+        if not videos:
             self._json_response(200, {
-                'error': f'Impossible de lister les vidéos. Vérifiez l\'URL.'
+                'error': 'Impossible de lister les vidéos. Vérifiez l\'URL.'
             }); return
         if not transcripts:
             self._json_response(200, {
