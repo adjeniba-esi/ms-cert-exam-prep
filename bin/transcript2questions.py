@@ -54,15 +54,25 @@ SYSTEM_PROMPT = """\
 Tu es un expert en création de questionnaires de certification professionnelle.
 À partir d'un extrait de transcript de vidéo de formation, génère des questions QCM de haute qualité.
 
-Règles :
+Règles générales :
 - Questions claires et précises, basées UNIQUEMENT sur le contenu fourni
 - 4 à 6 options de réponse (les distracteurs doivent être crédibles et plausibles)
-- Les questions multi-choix doivent le mentionner explicitement ("Sélectionnez X réponses" / "Select X answers")
 - Le champ "domain" doit être un thème court (2-4 mots) représentatif du sujet traité
 - L'explication justifie la bonne réponse ET éclaircit pourquoi les autres sont incorrectes
 - Même langue que le transcript fourni
-- correct_idx : index 0-based de la bonne option ("2"), ou liste pour multi-choix ("0,2")
 - opt_e et opt_f : laisser "" si non utilisées
+
+Règles STRICTES pour les questions multi-choix (is_multi = 1) :
+1. L'énoncé DOIT indiquer explicitement le nombre de réponses attendues :
+   "Sélectionnez X réponses." / "Select X answers."
+2. select_count DOIT être égal à X (le nombre écrit dans l'énoncé)
+3. correct_idx DOIT contenir EXACTEMENT X indices séparés par des virgules
+   Exemple : si l'énoncé dit "Sélectionnez 2 réponses", alors select_count=2 et correct_idx="0,3"
+4. Ces trois éléments (nombre dans l'énoncé, select_count, longueur de correct_idx) doivent être identiques — toute incohérence est une erreur
+
+Pour les questions à réponse unique (is_multi = 0) :
+- correct_idx : un seul index 0-based (ex. "2")
+- select_count : toujours 1
 
 Réponds UNIQUEMENT avec un tableau JSON valide, sans texte autour :
 [
@@ -143,9 +153,35 @@ def parse_questions(text):
     return json.loads(m.group())
 
 
+def validate_question(q):
+    """Vérifie la cohérence entre is_multi, select_count et correct_idx.
+    Retourne None si valide, sinon un message d'erreur."""
+    is_multi = int(q.get('is_multi', 0))
+    select_count = int(q.get('select_count', 1))
+    correct_idx = str(q.get('correct_idx', '0')).strip()
+    n_correct = len([x for x in correct_idx.split(',') if x.strip() != ''])
+
+    if is_multi:
+        if select_count < 2:
+            return f"is_multi=1 mais select_count={select_count} (doit être ≥ 2)"
+        if n_correct != select_count:
+            return (f"is_multi=1, select_count={select_count} mais correct_idx "
+                    f"contient {n_correct} indice(s) : {correct_idx!r}")
+    else:
+        if n_correct != 1:
+            return (f"is_multi=0 mais correct_idx contient {n_correct} indice(s) : "
+                    f"{correct_idx!r}")
+    return None
+
+
 def insert_questions(conn, questions):
-    inserted = skipped = 0
+    inserted = skipped = invalid = 0
     for q in questions:
+        err = validate_question(q)
+        if err:
+            print(f'\n  [REJET cohérence] {err} — question: {q.get("question","")[:60]!r}')
+            invalid += 1
+            continue
         try:
             conn.execute(
                 'INSERT INTO questions '
@@ -231,7 +267,7 @@ def main():
         print(f'Aucun fichier .txt/.srt dans {args.input}', file=sys.stderr)
         sys.exit(1)
 
-    total_inserted = total_skipped = 0
+    total_inserted = total_skipped = total_invalid = 0
 
     for fname in files:
         fpath = os.path.join(args.input, fname)
@@ -259,8 +295,9 @@ def main():
                 ins, skp  = insert_questions(conn, questions)
                 total_inserted += ins
                 total_skipped  += skp
-                suffix = f', {skp} doublon(s) ignoré(s)' if skp else ''
-                print(f'{ins} question(s) insérée(s){suffix}')
+                parts = [f'{ins} question(s) insérée(s)']
+                if skp: parts.append(f'{skp} doublon(s)')
+                print(', '.join(parts))
             except urllib.error.HTTPError as e:
                 print(f'ERREUR API {e.code} : {e.read().decode()[:200]}')
             except Exception as e:
@@ -273,8 +310,10 @@ def main():
     conn.commit()
     conn.close()
 
-    print(f'\n✓ Terminé : {total_inserted} question(s) insérée(s), '
-          f'{total_skipped} doublon(s) ignoré(s)')
+    parts = [f'{total_inserted} question(s) insérée(s)']
+    if total_skipped:  parts.append(f'{total_skipped} doublon(s) ignoré(s)')
+    if total_invalid:  parts.append(f'{total_invalid} rejet(s) de cohérence')
+    print(f'\n✓ Terminé : {", ".join(parts)}')
     print(f'  Base : {args.output}  ({count} questions au total)')
     print(f'\nÉtape suivante : déclarer l\'examen dans exams/index.json et exams/{args.exam_id}.json,')
     print( '  puis régénérer les .js miroirs :')
