@@ -18,7 +18,7 @@ Usage :
 Puis ouvrez : http://localhost:8080/Exam-Prep.html
 """
 import http.server, urllib.request, urllib.error, ssl, os, sys
-import json, re, tempfile, glob
+import json, re, tempfile, glob, time
 
 try:
     import yt_dlp as _yt_dlp
@@ -147,7 +147,9 @@ class ProxyHandler(http.server.SimpleHTTPRequestHandler):
                 # lang.* (glob) matche fr-FR, fr-BE, en-orig, etc.
                 sub_langs = [lang + '.*']
                 transcripts = []
-                for video in videos:
+                for i, video in enumerate(videos):
+                    if i > 0:
+                        time.sleep(2)   # évite le 429 sur les playlists
                     ydl_opts = {
                         'quiet': True, 'no_warnings': True,
                         'skip_download': True,
@@ -156,6 +158,9 @@ class ProxyHandler(http.server.SimpleHTTPRequestHandler):
                         'subtitleslangs': sub_langs,
                         'subtitlesformat': 'srt',
                         'outtmpl': os.path.join(tmpdir, video['id'] + '.%(ext)s'),
+                        'retries': 5,
+                        'sleep_interval': 2,
+                        'sleep_interval_requests': 1,
                     }
                     with _yt_dlp.YoutubeDL(ydl_opts) as ydl:
                         ydl.download(['https://youtu.be/' + video['id']])
@@ -176,7 +181,13 @@ class ProxyHandler(http.server.SimpleHTTPRequestHandler):
                 self._json_response(200, {'transcripts': transcripts})
 
         except Exception as e:
-            self._json_response(500, {'error': str(e)})
+            err = str(e)
+            if '429' in err:
+                self._json_response(429, {
+                    'error': 'YouTube limite les requêtes (429 Too Many Requests). Attendez 1-2 minutes puis réessayez.'
+                })
+            else:
+                self._json_response(500, {'error': err})
 
     def _proxy_to_ollama(self):
         """Proxifie une requête vers une instance Ollama locale."""
