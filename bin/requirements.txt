@@ -1,0 +1,14 @@
+# Prérequis Python pour les scripts bin/
+# Python >= 3.9 requis
+#
+# Installation :
+#   pip install -r bin/requirements.txt
+#
+# Scripts et leurs dépendances :
+#   serve.py                     — stdlib uniquement (http.server, ssl, urllib)
+#   sqlite2js.py                 — stdlib uniquement (sqlite3, base64, pathlib)
+#   get_playlist_transcripts.py  — yt-dlp (+ subprocess stdlib)
+#   transcript2questions.py      — stdlib uniquement (urllib, sqlite3, ssl)
+
+# Téléchargement de sous-titres YouTube
+yt-dlp >= 2024.1.0
