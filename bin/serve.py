@@ -52,6 +52,8 @@ class ProxyHandler(http.server.SimpleHTTPRequestHandler):
             self._proxy_to_anthropic()
         elif self.path == '/api/transcript':
             self._get_transcript()
+        elif self.path == '/api/ollama':
+            self._proxy_to_ollama()
         else:
             self.send_error(404, 'Not found')
 
@@ -157,6 +159,42 @@ class ProxyHandler(http.server.SimpleHTTPRequestHandler):
             self._json_response(500, {'error': str(e)}); return
 
         self._json_response(200, {'transcripts': transcripts})
+
+    def _proxy_to_ollama(self):
+        """Proxifie une requête vers une instance Ollama locale."""
+        length = int(self.headers.get('Content-Length', 0))
+        try:
+            body = json.loads(self.rfile.read(length))
+        except Exception:
+            self._json_response(400, {'error': 'JSON invalide'}); return
+
+        ollama_url   = body.get('ollama_url', 'http://localhost:11434').rstrip('/')
+        model        = body.get('model', 'llama3.2')
+        system_msg   = body.get('system', '')
+        messages     = body.get('messages', [])
+
+        payload = json.dumps({
+            'model':    model,
+            'messages': [{'role': 'system', 'content': system_msg}] + messages,
+            'stream':   False
+        }).encode()
+
+        try:
+            req = urllib.request.Request(
+                ollama_url + '/api/chat',
+                data=payload,
+                headers={'Content-Type': 'application/json'},
+                method='POST'
+            )
+            ctx = SSL_CTX if ollama_url.startswith('https') else None
+            with urllib.request.urlopen(req, context=ctx, timeout=300) as resp:
+                data = json.loads(resp.read())
+            text = data.get('message', {}).get('content', '')
+            self._json_response(200, {'content': [{'text': text}]})
+        except urllib.error.URLError as e:
+            self._json_response(502, {'error': 'Ollama inaccessible : ' + str(e.reason)})
+        except Exception as e:
+            self._json_response(500, {'error': str(e)})
 
     def end_headers(self):
         # Ne pas cacher les ressources dynamiques ni le HTML en mode dev

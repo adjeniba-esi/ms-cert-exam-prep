@@ -808,10 +808,23 @@
             </div>
             <div>
               <label>Modèle Claude</label>
-              <select id="addex-yt-model">
+              <select id="addex-yt-model" onchange="onAddExamModelChange()">
                 <option value="claude-haiku-4-5-20251001" selected>Haiku — rapide</option>
                 <option value="claude-sonnet-4-6">Sonnet — qualité</option>
+                <option value="ollama">Ollama — local</option>
               </select>
+            </div>
+          </div>
+          <div id="addex-ollama-wrap" style="display:none;margin-top:8px">
+            <div style="display:grid;grid-template-columns:2fr 1fr;gap:10px">
+              <div>
+                <label>URL Ollama</label>
+                <input type="text" id="addex-ollama-url" value="http://localhost:11434" placeholder="http://localhost:11434">
+              </div>
+              <div>
+                <label>Modèle Ollama</label>
+                <input type="text" id="addex-ollama-model" value="llama3.2" placeholder="llama3.2">
+              </div>
             </div>
           </div>
           <div id="addex-apikey-wrap" style="margin-top:8px">
@@ -2512,8 +2525,7 @@ function showAddExamTab(mode) {
   const btn = document.querySelector('.addex-create');
   if (btn) btn.textContent = mode === 'youtube' ? 'Générer →' : "Créer l'examen →";
   if (mode === 'youtube') {
-    const wrap = document.getElementById('addex-apikey-wrap');
-    if (wrap) wrap.style.display = localStorage.getItem('_ak') ? 'none' : '';
+    onAddExamModelChange();
   }
   const prog = document.getElementById('addex-progress');
   if (prog) { prog.innerHTML = ''; prog.style.display = 'none'; }
@@ -2534,6 +2546,15 @@ function showAddExamError(msg) {
   const err = document.getElementById('addex-err');
   err.textContent = '⚠️ ' + msg;
   err.style.display = 'block';
+}
+
+function onAddExamModelChange() {
+  const model     = document.getElementById('addex-yt-model')?.value;
+  const isOllama  = model === 'ollama';
+  const ollamaWrap = document.getElementById('addex-ollama-wrap');
+  const apikeyWrap = document.getElementById('addex-apikey-wrap');
+  if (ollamaWrap) ollamaWrap.style.display = isOllama ? '' : 'none';
+  if (apikeyWrap) apikeyWrap.style.display = (isOllama || !!localStorage.getItem('_ak')) ? 'none' : '';
 }
 
 function onAddExamFile(input) {
@@ -2663,25 +2684,31 @@ var _QGN_SYSTEM = 'Tu es un expert en création de questionnaires de certificati
   '[{"domain":"...","question":"...","opt_a":"...","opt_b":"...","opt_c":"...","opt_d":"...","opt_e":"","opt_f":"","correct_idx":"0","explanation":"...","is_multi":0,"select_count":1}]';
 
 async function _callClaudeQGen(apiKey, chunk, nQ, title) {
-  const body = JSON.stringify({
-    model: document.getElementById('addex-yt-model')?.value || 'claude-haiku-4-5-20251001',
-    max_tokens: 4096,
-    system: _QGN_SYSTEM,
-    messages: [{role:'user', content: 'Vidéo : "'+title+'"\n\nGénère exactement '+nQ+' questions à partir de ce transcript :\n\n'+chunk}]
-  });
-  const resp = await fetch('/api/translate', {
-    method:'POST',
-    headers:{'Content-Type':'application/json','X-Api-Key':apiKey,'anthropic-version':'2023-06-01'},
-    body
-  });
+  const model      = document.getElementById('addex-yt-model')?.value || 'claude-haiku-4-5-20251001';
+  const msgContent = 'Vidéo : "'+title+'"\n\nGénère exactement '+nQ+' questions à partir de ce transcript :\n\n'+chunk;
+  let endpoint, body, headers;
+
+  if (model === 'ollama') {
+    const ollamaUrl   = (document.getElementById('addex-ollama-url')?.value  || 'http://localhost:11434').trim();
+    const ollamaModel = (document.getElementById('addex-ollama-model')?.value || 'llama3.2').trim();
+    endpoint = '/api/ollama';
+    body     = JSON.stringify({ollama_url:ollamaUrl, model:ollamaModel, system:_QGN_SYSTEM, messages:[{role:'user',content:msgContent}]});
+    headers  = {'Content-Type':'application/json'};
+  } else {
+    endpoint = '/api/translate';
+    body     = JSON.stringify({model, max_tokens:4096, system:_QGN_SYSTEM, messages:[{role:'user',content:msgContent}]});
+    headers  = {'Content-Type':'application/json','X-Api-Key':apiKey,'anthropic-version':'2023-06-01'};
+  }
+
+  const resp = await fetch(endpoint, {method:'POST', headers, body});
   if (!resp.ok) {
     const e = await resp.json().catch(()=>({}));
-    throw new Error('API '+resp.status+' : '+((e.error&&e.error.message)||'Erreur'));
+    throw new Error('API '+resp.status+' : '+((e.error&&e.error.message)||JSON.stringify(e.error)||'Erreur'));
   }
   const data = await resp.json();
   const text = data.content[0].text;
   const m = text.match(/\[[\s\S]*\]/);
-  if (!m) throw new Error('Pas de JSON dans la réponse Claude');
+  if (!m) throw new Error('Pas de JSON dans la réponse');
   return JSON.parse(m[0]);
 }
 
@@ -2711,9 +2738,9 @@ async function _generateFromYoutube(title, subtitle, perExam, timeMin, passT) {
   if (keyEl && keyEl.value.trim()) apiKey = keyEl.value.trim();
 
   if (!ytUrl)   { showAddExamError('URL YouTube requise.'); return; }
-  if (!apiKey)  { showAddExamError('Clé API Anthropic requise.'); return; }
-
-  localStorage.setItem('_ak', apiKey);
+  const _useOllama = document.getElementById('addex-yt-model')?.value === 'ollama';
+  if (!_useOllama && !apiKey) { showAddExamError('Clé API Anthropic requise.'); return; }
+  if (!_useOllama) localStorage.setItem('_ak', apiKey);
 
   const btn = document.querySelector('.addex-create');
   btn.disabled = true; btn.textContent = '⏳ En cours...';
