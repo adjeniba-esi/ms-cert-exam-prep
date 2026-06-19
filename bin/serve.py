@@ -28,10 +28,13 @@ except ImportError:
 
 PORT = 8080
 HOST = '127.0.0.1'
+CORS_ORIGIN = '*'   # remplacé par --cors-origin en production
 if '--port' in sys.argv:
     PORT = int(sys.argv[sys.argv.index('--port') + 1])
 if '--host' in sys.argv:
     HOST = sys.argv[sys.argv.index('--host') + 1]
+if '--cors-origin' in sys.argv:
+    CORS_ORIGIN = sys.argv[sys.argv.index('--cors-origin') + 1]
 
 ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages'
 SSL_CTX = ssl.create_default_context()
@@ -218,7 +221,7 @@ class ProxyHandler(http.server.SimpleHTTPRequestHandler):
         super().end_headers()
 
     def _cors_headers(self):
-        self.send_header('Access-Control-Allow-Origin',  '*')
+        self.send_header('Access-Control-Allow-Origin',  CORS_ORIGIN)
         self.send_header('Access-Control-Allow-Methods', 'POST, GET, OPTIONS')
         self.send_header('Access-Control-Allow-Headers',
                          'Content-Type, X-Api-Key, anthropic-version')
