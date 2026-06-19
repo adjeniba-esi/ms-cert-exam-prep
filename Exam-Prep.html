@@ -207,6 +207,8 @@
   .hist-badge.pass{background:var(--green-bg);color:var(--green);border:0.5px solid rgba(76,175,125,0.3)}
   .hist-badge.fail{background:var(--red-bg);color:var(--red);border:0.5px solid rgba(224,82,82,0.3)}
   .hist-meta{font-size:12px;color:var(--text-muted);margin-left:auto}
+  .hist-row-short{opacity:0.5}
+  .hist-short-badge{font-family:var(--font-mono);font-size:9px;color:var(--text-dim);background:var(--surface2);border:0.5px solid var(--border);border-radius:99px;padding:1px 6px;margin-left:4px;vertical-align:middle}
   .hist-domains{padding:0 16px 14px;display:none;flex-direction:column;gap:6px}
   .hist-domains.open{display:flex}
   .hist-d-row{display:flex;align-items:center;gap:8px}
@@ -244,6 +246,24 @@
   .quiz-meta{display:flex;gap:1rem;flex-wrap:wrap}
   .quiz-meta-item{font-family:var(--font-mono);font-size:11px;color:var(--text-dim)}
   .quiz-meta-item span{color:var(--text-muted);font-weight:500}
+
+  /* ── Org screen ─────────────────────────────────────────────────── */
+  #org-screen{padding:3rem 1rem 2rem;text-align:center}
+  .org-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:1.25rem;max-width:540px;margin:0 auto}
+  .org-card{background:var(--surface);border:.5px solid var(--border);border-radius:var(--radius-lg);padding:2rem 1.5rem 1.75rem;cursor:pointer;transition:border-color .18s,transform .12s,background .18s,box-shadow .18s;position:relative;overflow:hidden;display:flex;flex-direction:column;align-items:center;gap:.8rem}
+  .org-card:hover{border-color:var(--border2);background:var(--surface2);transform:translateY(-4px);box-shadow:0 16px 40px rgba(0,0,0,.35)}
+  .org-card:active{transform:translateY(0);box-shadow:none}
+  .org-card-accent{position:absolute;top:0;left:0;right:0;height:3px}
+  .org-card.microsoft .org-card-accent{background:linear-gradient(90deg,#f25022 25%,#7fba00 25%,#7fba00 50%,#00a4ef 50%,#00a4ef 75%,#ffb900 75%)}
+  .org-card.dama .org-card-accent{background:linear-gradient(90deg,#e65100,#ff8f00)}
+  .org-logo{height:60px;display:flex;align-items:center;justify-content:center;margin-top:.5rem}
+  .org-logo img{max-height:60px;max-width:160px;width:auto;object-fit:contain}
+  .org-name{font-family:var(--font-display);font-size:1.15rem;font-weight:600;color:var(--text)}
+  .org-sub{font-size:11px;color:var(--text-dim);letter-spacing:.04em;line-height:1.5;text-align:center}
+  .org-tags{display:flex;flex-wrap:wrap;gap:5px;justify-content:center;margin-top:.1rem}
+  .org-tag{font-family:var(--font-mono);font-size:9px;letter-spacing:.06em;padding:2px 8px;border:.5px solid var(--border);border-radius:99px;background:var(--surface2);color:var(--text-dim)}
+  .org-back-btn{font-size:11px;color:var(--text-dim);background:none;border:none;cursor:pointer;margin-bottom:1.5rem;display:inline-flex;align-items:center;gap:5px;padding:0;letter-spacing:.02em}
+  .org-back-btn:hover{color:var(--text-muted)}
 
 
   /* ── Multi-select questions ──────────────────────────────────────── */
@@ -505,10 +525,52 @@
     <button class="nav-btn" id="finish-btn" onclick="finishExam()">End Exam</button>
   </div>
 
-  <!-- Picker screen — affiché au premier chargement -->
-  <div id="picker-screen">
+  <!-- Org screen — sélection de l'organisme certificateur -->
+  <div id="org-screen">
     <div class="picker-logo">Exam Prep</div>
-    <div class="picker-sub">Choisir un questionnaire</div>
+    <div class="picker-sub">Choisir un organisme certificateur</div>
+    <div class="org-cards">
+      <div class="org-card microsoft" onclick="showOrgPicker('microsoft')">
+        <div class="org-card-accent"></div>
+        <div class="org-logo">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 23 23" width="52" height="52">
+            <rect x="1" y="1" width="10" height="10" fill="#F25022"/>
+            <rect x="12" y="1" width="10" height="10" fill="#7FBA00"/>
+            <rect x="1" y="12" width="10" height="10" fill="#00A4EF"/>
+            <rect x="12" y="12" width="10" height="10" fill="#FFB900"/>
+          </svg>
+        </div>
+        <div class="org-name">Microsoft</div>
+        <div class="org-sub">Certifications Azure &amp; Data</div>
+        <div class="org-tags">
+          <span class="org-tag">AI-900</span>
+          <span class="org-tag">AZ-104</span>
+          <span class="org-tag">DP-300</span>
+          <span class="org-tag">DP-700</span>
+        </div>
+      </div>
+      <div class="org-card dama" onclick="showOrgPicker('dama')">
+        <div class="org-card-accent"></div>
+        <div class="org-logo">
+          <img src="https://www.dama.org/sites/default/files/inline-images/DAMA-logo.png"
+               alt="DAMA International"
+               onerror="this.style.display='none';this.nextElementSibling.style.display='block'">
+          <span style="display:none;font-family:var(--font-display);font-size:2.6rem;font-weight:800;color:#e65100;letter-spacing:-.03em">DAMA</span>
+        </div>
+        <div class="org-name">DAMA International</div>
+        <div class="org-sub">Data Management Body of Knowledge</div>
+        <div class="org-tags">
+          <span class="org-tag">CDMP</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Picker screen -->
+  <div id="picker-screen" style="display:none">
+    <button class="org-back-btn" onclick="showOrgScreen()">← Organismes</button>
+    <div class="picker-logo" id="picker-org-name">Microsoft</div>
+    <div class="picker-sub" id="picker-org-sub">Certifications Azure &amp; Data</div>
     <div class="quiz-cards" id="quiz-cards-container"></div>
   </div>
 
@@ -965,6 +1027,7 @@ function _b64ToBytes(b64) {
 }
 
 let CUR_QUIZ = null; // questionnaire actif
+let ACTIVE_ORG = null;
 const _QDB_VERSION = 4; // bump this to force re-bootstrap from _QDB
 
 // ── IndexedDB helpers ─────────────────────────────────────────────────────────
@@ -1401,9 +1464,9 @@ async function initDB() {
     const quiz = QUESTIONNAIRES.find(q => q.id === pending);
     if (quiz) { await loadQuiz(quiz); return; }
   }
-  // Sinon afficher le picker
+  // Sinon afficher le sélecteur d'organisme
   loadCustomExams();
-  _renderPicker();
+  showOrgScreen();
   hideLoading();
 }
 
@@ -2158,11 +2221,11 @@ function applyConfigAndStart() {
 }
 
 function showScreen(id) {
-  ['picker-screen','lang-screen','config-screen','start-screen','exam-screen','result-screen','history-screen'].forEach(s => {
+  ['org-screen','picker-screen','lang-screen','config-screen','start-screen','exam-screen','result-screen','history-screen'].forEach(s => {
     document.getElementById(s).style.display = s === id ? 'block' : 'none';
   });
   document.getElementById('top-bar').style.display =
-    (id === 'start-screen' || id === 'picker-screen' || id === 'lang-screen' || id === 'config-screen') ? 'none' : 'flex';
+    (id === 'org-screen' || id === 'start-screen' || id === 'picker-screen' || id === 'lang-screen' || id === 'config-screen') ? 'none' : 'flex';
 }
 
 
@@ -2485,9 +2548,32 @@ function _createBlankDB() {
   return data;
 }
 
+const _ORG_IDS = {
+  microsoft: ['ai900','dp300','az104','dp700'],
+  dama:      ['cdmp']
+};
+
+function showOrgScreen() {
+  ACTIVE_ORG = null;
+  showScreen('org-screen');
+}
+
+function showOrgPicker(org) {
+  ACTIVE_ORG = org;
+  const names = { microsoft: 'Microsoft', dama: 'DAMA International' };
+  const subs  = { microsoft: 'Certifications Azure & Data', dama: 'Data Management Body of Knowledge' };
+  const nameEl = document.getElementById('picker-org-name');
+  const subEl  = document.getElementById('picker-org-sub');
+  if (nameEl) nameEl.textContent = names[org] || 'Exam Prep';
+  if (subEl)  subEl.textContent  = subs[org]  || 'Choisir un questionnaire';
+  _renderPicker();
+}
+
 function _renderPicker() {
   const container = document.getElementById('quiz-cards-container');
-  const cards = QUESTIONNAIRES.map(q => {
+  const orgFilter = ACTIVE_ORG ? (_ORG_IDS[ACTIVE_ORG] || []) : null;
+  const quizzes   = QUESTIONNAIRES.filter(q => q.isCustom || !orgFilter || orgFilter.includes(q.id));
+  const cards = quizzes.map(q => {
     const delBtn = q.isCustom
       ? `<button class="custom-del" onclick="event.stopPropagation();deleteCustomExam('${q.id}')">✕</button>`
       : '';
@@ -2884,6 +2970,7 @@ function renderHistory(sRows, dRows, aRows) {
   html += '<span class="hist-title">' + qzTitle + ' — Historique</span>';
   html += '<div class="hist-actions">';
   html += '<button class="hist-clear" onclick="clearHistory()">Effacer tout</button>';
+  html += '<button class="hist-clear" onclick="deleteShortSessions()" style="color:var(--text-dim);border-color:rgba(255,255,255,0.15);margin-left:4px">&#128293; &lt; 5 min</button>';
   html += '<button class="nav-btn" onclick="showScreen(\'picker-screen\')">← Questionnaires</button>';
   html += '</div></div>';
 
@@ -2903,12 +2990,12 @@ function renderHistory(sRows, dRows, aRows) {
     html += '</div><div class="hist-table">';
     sessions.forEach(s => {
       const ok = s.pct >= pass_th;
-      html += '<div class="hist-row" onclick="toggleDomains('+s.id+')">';
+      html += '<div class="hist-row'+(s.dur<300?' hist-row-short':'')+'" onclick="toggleDomains('+s.id+')">';
       html += '<div class="hist-row-head">';
       html += '<span class="hist-date">' + (s.quizTitle ? '<span style="font-family:var(--font-mono);font-size:9px;color:var(--gold);margin-right:5px">' + s.quizTitle + '</span>' : '') + fmtDate(s.date) + '</span>';
       html += '<span class="hist-pct">'+s.pct+'%</span>';
       html += '<span class="hist-badge '+(ok?'pass':'fail')+'">'+(ok?'Pass':'Fail')+'</span>';
-      html += '<span class="hist-meta">'+s.attempted+' Qs · '+fmtDur(s.dur)+'</span></div>';
+      html += '<span class="hist-meta">'+s.attempted+' Qs · '+fmtDur(s.dur)+(s.dur<300?' <span class="hist-short-badge">&lt;5min</span>':'')+'</span></div>';
       const doms = dmap[s.id]||[];
       if (doms.length) {
         html += '<div class="hist-domains" id="hd-'+s.id+'">';
@@ -2973,6 +3060,22 @@ async function clearHistory() {
     showHistory();
     dbStatus('History cleared');
   } catch(e) { console.warn('Clear failed:', e); }
+}
+
+async function deleteShortSessions() {
+  if (!DB) return;
+  try {
+    var r = DB.exec('SELECT COUNT(*) FROM sessions WHERE duration_sec < 300');
+    var count = r[0] ? r[0].values[0][0] : 0;
+    if (!count) { _showLangNotif('Aucune session de moins de 5 min'); return; }
+    if (!confirm('Supprimer ' + count + ' session(s) de moins de 5 minutes ?')) return;
+    try { DB.run('DELETE FROM session_answers WHERE session_id IN (SELECT id FROM sessions WHERE duration_sec < 300)'); } catch(_) {}
+    DB.run('DELETE FROM domain_scores WHERE session_id IN (SELECT id FROM sessions WHERE duration_sec < 300)');
+    DB.run('DELETE FROM sessions WHERE duration_sec < 300');
+    await persistDB();
+    showHistory();
+    dbStatus(count + ' session(s) supprimee(s)');
+  } catch(e) { console.warn('deleteShortSessions failed:', e); }
 }
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
