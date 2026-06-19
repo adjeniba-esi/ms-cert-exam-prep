@@ -794,7 +794,7 @@
         </div>
         <div id="addex-source-yt" style="display:none">
           <input type="text" id="addex-yt-url" placeholder="https://youtube.com/playlist?list=... ou https://youtu.be/...">
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px">
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:8px">
             <div>
               <label>Langue sous-titres</label>
               <select id="addex-yt-lang">
@@ -805,6 +805,13 @@
             <div>
               <label>Questions / segment</label>
               <input type="number" id="addex-yt-qpc" value="5" min="1" max="15">
+            </div>
+            <div>
+              <label>Modèle Claude</label>
+              <select id="addex-yt-model">
+                <option value="claude-haiku-4-5-20251001" selected>Haiku — rapide</option>
+                <option value="claude-sonnet-4-6">Sonnet — qualité</option>
+              </select>
             </div>
           </div>
           <div id="addex-apikey-wrap" style="margin-top:8px">
@@ -2657,7 +2664,7 @@ var _QGN_SYSTEM = 'Tu es un expert en création de questionnaires de certificati
 
 async function _callClaudeQGen(apiKey, chunk, nQ, title) {
   const body = JSON.stringify({
-    model: 'claude-haiku-4-5-20251001',
+    model: document.getElementById('addex-yt-model')?.value || 'claude-haiku-4-5-20251001',
     max_tokens: 4096,
     system: _QGN_SYSTEM,
     messages: [{role:'user', content: 'Vidéo : "'+title+'"\n\nGénère exactement '+nQ+' questions à partir de ce transcript :\n\n'+chunk}]
