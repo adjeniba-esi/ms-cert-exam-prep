@@ -1086,7 +1086,13 @@ function _b64ToBytes(b64) {
 
 let CUR_QUIZ = null; // questionnaire actif
 let ACTIVE_ORG = null;
-const _QDB_VERSION = 4; // bump this to force re-bootstrap from _QDB
+const _QDB_VERSION = 4;
+// Préfixe de base pour les appels API (vide en local, /prep-exam en prod sous-chemin)
+const _API_BASE = (function(){
+  var p = window.location.pathname;
+  var base = p.endsWith('/') ? p.slice(0,-1) : p.replace(/\/[^/]*$/,'');
+  return (base===''||base==='/')?'':base;
+})(); // bump this to force re-bootstrap from _QDB
 
 // ── IndexedDB helpers ─────────────────────────────────────────────────────────
 const IDB_NM  = 'exam_prep_v1';
@@ -2172,7 +2178,7 @@ async function _callTranslationAPI(rows, targetLang, langName, apiKey) {
   const prompt=`Translate to ${langName}. Rules: keep English product names/commands/acronyms. Same option count. JSON only.
 Format:[{"id":N,"q":"...","o":["..."],"e":"..."},...]
 Input:${JSON.stringify(payload)}`;
-  const proxyUrl=window.location.origin+'/api/translate';
+  const proxyUrl=window.location.origin+_API_BASE+'/api/translate';
   const resp=await fetch(proxyUrl,{
     method:'POST',
     headers:{'content-type':'application/json','x-api-key':apiKey,'anthropic-version':'2023-06-01'},
@@ -2691,11 +2697,11 @@ async function _callClaudeQGen(apiKey, chunk, nQ, title) {
   if (model === 'ollama') {
     const ollamaUrl   = (document.getElementById('addex-ollama-url')?.value  || 'http://localhost:11434').trim();
     const ollamaModel = (document.getElementById('addex-ollama-model')?.value || 'llama3.2').trim();
-    endpoint = '/api/ollama';
+    endpoint = _API_BASE+'/api/ollama';
     body     = JSON.stringify({ollama_url:ollamaUrl, model:ollamaModel, system:_QGN_SYSTEM, messages:[{role:'user',content:msgContent}]});
     headers  = {'Content-Type':'application/json'};
   } else {
-    endpoint = '/api/translate';
+    endpoint = _API_BASE+'/api/translate';
     body     = JSON.stringify({model, max_tokens:4096, system:_QGN_SYSTEM, messages:[{role:'user',content:msgContent}]});
     headers  = {'Content-Type':'application/json','X-Api-Key':apiKey,'anthropic-version':'2023-06-01'};
   }
@@ -2748,7 +2754,7 @@ async function _generateFromYoutube(title, subtitle, perExam, timeMin, passT) {
 
   try {
     const logLine = _addexLog('Récupération des sous-titres via yt-dlp…', 'cur');
-    const resp = await fetch('/api/transcript', {
+    const resp = await fetch(_API_BASE+'/api/transcript', {
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body: JSON.stringify({url:ytUrl, lang})
