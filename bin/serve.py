@@ -125,30 +125,36 @@ class ProxyHandler(http.server.SimpleHTTPRequestHandler):
         transcripts = []
         try:
             with tempfile.TemporaryDirectory() as tmpdir:
+                # %(playlist_index)s vaut "NA" pour une vidéo unique → on utilise
+                # un format sans index, séparé par TAB, valide pour vidéo et playlist
                 r = subprocess.run(
-                    ytdlp_cmd + ['--flat-playlist', '--print',
-                     '%(playlist_index)s. %(title)s [%(id)s]', url],
+                    ytdlp_cmd + ['--flat-playlist', '--print', '%(id)s\t%(title)s', url],
                     capture_output=True, text=True, timeout=60
                 )
                 videos = []
                 for line in r.stdout.splitlines():
-                    m = re.match(r'^(\d+\..+)\[([A-Za-z0-9_-]+)\]$', line.strip())
-                    if m:
-                        videos.append({'title': m.group(1).strip(), 'id': m.group(2)})
+                    line = line.strip()
+                    if '\t' in line:
+                        vid_id, title = line.split('\t', 1)
+                        vid_id = vid_id.strip()
+                        if re.match(r'^[A-Za-z0-9_-]{6,20}$', vid_id):
+                            videos.append({'title': title.strip(), 'id': vid_id})
 
+                # Pattern lang.* pour matcher fr-FR, fr-BE, en-orig, etc.
+                sub_lang = lang + '.*,' + lang
                 for video in videos:
-                    tpl = os.path.join(tmpdir,
-                                       video['title'] + ' [%(id)s].%(ext)s')
+                    tpl = os.path.join(tmpdir, '%(id)s.%(ext)s')
                     subprocess.run(
                         ytdlp_cmd + ['--skip-download',
-                         '--write-auto-sub', '--sub-lang', lang,
+                         '--write-sub', '--write-auto-sub',
+                         '--sub-lang', sub_lang,
                          '--convert-subs', 'srt',
                          '--output', tpl,
                          'https://youtu.be/' + video['id']],
                         capture_output=True, timeout=60
                     )
                     matches = glob.glob(
-                        os.path.join(tmpdir, '*' + video['id'] + '*.srt'))
+                        os.path.join(tmpdir, video['id'] + '*.srt'))
                     if matches:
                         with open(matches[0], encoding='utf-8', errors='ignore') as f:
                             raw = f.read()
@@ -159,6 +165,14 @@ class ProxyHandler(http.server.SimpleHTTPRequestHandler):
         except Exception as e:
             self._json_response(500, {'error': str(e)}); return
 
+        if not transcripts and not videos:
+            self._json_response(200, {
+                'error': f'Impossible de lister les vidéos. Vérifiez l\'URL.'
+            }); return
+        if not transcripts:
+            self._json_response(200, {
+                'error': f'Aucun sous-titre "{lang}" trouvé. Essayez l\'autre langue dans le sélecteur.'
+            }); return
         self._json_response(200, {'transcripts': transcripts})
 
     def _proxy_to_ollama(self):
