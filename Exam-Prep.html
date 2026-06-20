@@ -1625,19 +1625,26 @@ async function saveSession(correct, attempted, cxCorrect, cxTotal, ds) {
     // Reponses par question
     EQ.forEach(function(q, i) {
       var tr = _t(q);
-      var answerGiven   = null;
-      var correctAnswer = '';
+      var answerGiven = null;
+      // Build correctAnswer in the display language (tr.opts aligned with q.opts).
+      var correctAnswer;
+      if (q.isMulti) {
+        var cIdxs = (q.opts||[]).reduce(function(acc,o,idx){
+          if ((q.correctSet||new Set()).has(o)) acc.push(idx); return acc;
+        }, []);
+        correctAnswer = cIdxs.map(function(idx){ return tr.opts[idx]||''; }).filter(Boolean).join(' | ')
+                     || Array.from(q.correctSet||[]).join(' | ');
+      } else {
+        var correctIdx = (q.opts||[]).findIndex(function(_,idx){ return _ok(q,idx); });
+        correctAnswer = (correctIdx >= 0 ? tr.opts[correctIdx] : '') || q._correctText || '';
+      }
       if (ANS[i] !== undefined) {
         if (q.isMulti) {
           var idxs = String(ANS[i]).split(',').map(Number).filter(function(n){return !isNaN(n);});
           answerGiven = idxs.map(function(x){return tr.opts[x]||'';}).join(' | ');
-          correctAnswer = Array.from(q.correctSet||[]).join(' | ');
         } else {
-          answerGiven   = tr.opts[ANS[i]] || '';
-          correctAnswer = q._correctText || '';
+          answerGiven = tr.opts[ANS[i]] || '';
         }
-      } else {
-        correctAnswer = q.isMulti ? Array.from(q.correctSet||[]).join(' | ') : (q._correctText||'');
       }
       try {
         DB.run(
@@ -1900,10 +1907,11 @@ function _t(q) {
   if (LANG === 'en') return {q:q.q, opts:q.opts, exp:q.exp};
   const tr = EXAM_TR.get(q.id);
   if (!tr) return {q:q.q+' <span class=\"lang-badge\">EN</span>', opts:q.opts, exp:q.exp};
-  // Apply the same shuffle order used for English opts so positions align with _ok()
-  const tOpts = (tr.opts.length === q.opts.length && q._ord)
-    ? q._ord.map(i => tr.opts[i])
-    : q.opts;
+  // Align translated opts with the same shuffle applied to English opts.
+  // Per-item fallback to English when a translated slot is missing.
+  const tOpts = q._ord
+    ? q._ord.map(i => (i < tr.opts.length ? tr.opts[i] : null) || q.opts[i])
+    : tr.opts.length === q.opts.length ? tr.opts : q.opts;
   return {q:tr.q, opts:tOpts, exp:tr.exp||q.exp};
 }
 
