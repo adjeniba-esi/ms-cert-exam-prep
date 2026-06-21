@@ -268,6 +268,11 @@
   .org-tag{font-family:var(--font-mono);font-size:9px;letter-spacing:.06em;padding:2px 8px;border:.5px solid var(--border);border-radius:99px;background:var(--surface2);color:var(--text-dim)}
   .org-back-btn{font-size:11px;color:var(--text-dim);background:none;border:none;cursor:pointer;margin-bottom:1.5rem;display:inline-flex;align-items:center;gap:5px;padding:0;letter-spacing:.02em}
   .org-back-btn:hover{color:var(--text-muted)}
+  .org-card.add-domain{border-style:dashed;opacity:.7;flex-direction:column;align-items:center;justify-content:center;min-height:140px;gap:.75rem}
+  .org-card.add-domain:hover{opacity:1;border-color:var(--gold)}
+  .org-card.custom-domain .org-card-accent{background:linear-gradient(90deg,var(--gold),rgba(212,168,83,.4))}
+  .org-del{position:absolute;top:8px;right:8px;background:rgba(239,68,68,.15);border:.5px solid rgba(239,68,68,.3);border-radius:5px;padding:2px 7px;font-size:10px;color:#f87171;cursor:pointer;font-family:var(--font-mono);line-height:1.6;transition:all .15s}
+  .org-del:hover{background:rgba(239,68,68,.3)}
 
 
   /* ── Multi-select questions ──────────────────────────────────────── */
@@ -538,50 +543,16 @@
     <button class="nav-btn" id="finish-btn" onclick="finishExam()">End Exam</button>
   </div>
 
-  <!-- Org screen — sélection de l'organisme certificateur -->
+  <!-- Org screen — sélection du domaine -->
   <div id="org-screen">
     <div class="picker-logo">Exam Prep</div>
-    <div class="picker-sub">Choisir un organisme certificateur</div>
-    <div class="org-cards">
-      <div class="org-card microsoft" onclick="showOrgPicker('microsoft')">
-        <div class="org-card-accent"></div>
-        <div class="org-logo">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 23 23" width="52" height="52">
-            <rect x="1" y="1" width="10" height="10" fill="#F25022"/>
-            <rect x="12" y="1" width="10" height="10" fill="#7FBA00"/>
-            <rect x="1" y="12" width="10" height="10" fill="#00A4EF"/>
-            <rect x="12" y="12" width="10" height="10" fill="#FFB900"/>
-          </svg>
-        </div>
-        <div class="org-name">Microsoft</div>
-        <div class="org-sub">Certifications Azure &amp; Data</div>
-        <div class="org-tags">
-          <span class="org-tag">AI-900</span>
-          <span class="org-tag">AZ-104</span>
-          <span class="org-tag">DP-300</span>
-          <span class="org-tag">DP-700</span>
-        </div>
-      </div>
-      <div class="org-card dama" onclick="showOrgPicker('dama')">
-        <div class="org-card-accent"></div>
-        <div class="org-logo">
-          <img src="https://www.dama.org/sites/default/files/inline-images/DAMA-logo.png"
-               alt="DAMA International"
-               onerror="this.style.display='none';this.nextElementSibling.style.display='block'">
-          <span style="display:none;font-family:var(--font-display);font-size:2.6rem;font-weight:800;color:#e65100;letter-spacing:-.03em">DAMA</span>
-        </div>
-        <div class="org-name">DAMA International</div>
-        <div class="org-sub">Data Management Body of Knowledge</div>
-        <div class="org-tags">
-          <span class="org-tag">CDMP</span>
-        </div>
-      </div>
-    </div>
+    <div class="picker-sub">Choisir un domaine</div>
+    <div class="org-cards" id="org-cards-container"></div>
   </div>
 
   <!-- Picker screen -->
   <div id="picker-screen" style="display:none">
-    <button class="org-back-btn" onclick="showOrgScreen()">← Organismes</button>
+    <button class="org-back-btn" onclick="showOrgScreen()">← Domaines</button>
     <div class="picker-logo" id="picker-org-name">Microsoft</div>
     <div class="picker-sub" id="picker-org-sub">Certifications Azure &amp; Data</div>
     <div class="quiz-cards" id="quiz-cards-container"></div>
@@ -778,6 +749,13 @@
         </div>
       </div>
       <div class="addex-field">
+        <label>Domaine</label>
+        <select id="addex-domain" onchange="onAddExamDomainChange()"></select>
+        <div id="addex-new-domain-wrap" style="display:none;margin-top:6px">
+          <input type="text" id="addex-new-domain-name" placeholder="Nom du nouveau domaine" maxlength="40">
+        </div>
+      </div>
+      <div class="addex-field">
         <label>Source des questions</label>
         <div class="addex-tabs">
           <button class="addex-tab active" id="tab-file" onclick="showAddExamTab('file')">📁 Fichier SQLite</button>
@@ -842,6 +820,26 @@
         <button class="addex-create" onclick="confirmAddExam()">
           Créer l'examen →
         </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add-domain modal -->
+  <div id="adddomain-overlay" class="addex-overlay" style="display:none" onclick="if(event.target===this)hideAddDomainModal()">
+    <div class="addex-modal" style="max-width:380px">
+      <h3>➕ Ajouter un domaine</h3>
+      <div class="addex-field">
+        <label>Nom du domaine</label>
+        <input type="text" id="adddomain-name" placeholder="ex: CompTIA" maxlength="40">
+      </div>
+      <div class="addex-field">
+        <label>Description <small style="opacity:.6;font-weight:400">(optionnel)</small></label>
+        <input type="text" id="adddomain-sub" placeholder="ex: Certifications IT" maxlength="80">
+      </div>
+      <div class="addex-error" id="adddomain-err"></div>
+      <div class="addex-actions">
+        <button class="addex-cancel" onclick="hideAddDomainModal()">Annuler</button>
+        <button class="addex-create" onclick="confirmAddDomain()">Créer →</button>
       </div>
     </div>
   </div>
@@ -1531,6 +1529,7 @@ async function initDB() {
     if (quiz) { await loadQuiz(quiz); return; }
   }
   // Sinon afficher le sélecteur d'organisme
+  loadCustomDomains();
   loadCustomExams();
   showOrgScreen();
   hideLoading();
@@ -2508,14 +2507,38 @@ function _saveCustomMeta() {
 // Supprimer un examen personnalisé
 async function deleteCustomExam(id) {
   if (!confirm('Supprimer cet examen ? Les sessions sauvegardées seront perdues.')) return;
+  const quiz = QUESTIONNAIRES.find(q => q.id === id);
   const idx = QUESTIONNAIRES.findIndex(q => q.id === id);
   if (idx >= 0) QUESTIONNAIRES.splice(idx, 1);
   _saveCustomMeta();
-  try { await idbSet('_del_' + id, null); } catch(_) {}  // juste pour invalider
+  // Retirer l'examen de son domaine
+  if (quiz && quiz.domain) {
+    const dom = CUSTOM_DOMAINS.find(d => d.id === quiz.domain);
+    if (dom && dom.examIds) {
+      const eIdx = dom.examIds.indexOf(id);
+      if (eIdx >= 0) { dom.examIds.splice(eIdx, 1); _saveCustomDomains(); }
+    }
+  }
+  try { await idbSet('_del_' + id, null); } catch(_) {}
   _renderPicker();
 }
 
 // ── Modal ─────────────────────────────────────────────────────────────────────
+function _populateAddexDomains() {
+  const sel = document.getElementById('addex-domain');
+  if (!sel) return;
+  const domains = _allDomains();
+  sel.innerHTML = domains.map(d => `<option value="${d.id}">${d.name}</option>`).join('') +
+    `<option value="__new__">+ Nouveau domaine…</option>`;
+  if (ACTIVE_ORG) sel.value = ACTIVE_ORG;
+  document.getElementById('addex-new-domain-wrap').style.display = 'none';
+}
+
+function onAddExamDomainChange() {
+  const val = document.getElementById('addex-domain').value;
+  document.getElementById('addex-new-domain-wrap').style.display = val === '__new__' ? '' : 'none';
+}
+
 function showAddExamModal() {
   document.getElementById('addex-title').value    = '';
   document.getElementById('addex-subtitle').value = '';
@@ -2527,6 +2550,7 @@ function showAddExamModal() {
   document.getElementById('addex-err').style.display = 'none';
   document.getElementById('addex-file').value = '';
   _addexFile = null;
+  _populateAddexDomains();
   showAddExamTab('file');
   document.getElementById('addex-overlay').style.display = 'flex';
 }
@@ -2633,18 +2657,46 @@ async function confirmAddExam() {
   // Persister dans IndexedDB
   await idbSet(dbKey, dbData);
 
+  // Résoudre le domaine
+  let domainId = document.getElementById('addex-domain')?.value || null;
+  if (domainId === '__new__') {
+    const newName = document.getElementById('addex-new-domain-name')?.value.trim();
+    if (newName) {
+      const newDomain = { id: 'domain_' + Date.now(), name: newName, sub: '', isCustom: true, examIds: [] };
+      CUSTOM_DOMAINS.push(newDomain);
+      _saveCustomDomains();
+      domainId = newDomain.id;
+    } else {
+      domainId = null;
+    }
+  }
+
   // Ajouter à QUESTIONNAIRES
   const quiz = {
     id, title, subtitle: subtitle || title,
     description: 'Examen personnalisé',
     dbKey, version: 1,
     perExam, timeMin, passThreshold: passT,
-    cssClass: 'custom', isCustom: true
+    cssClass: 'custom', isCustom: true,
+    domain: domainId || null
   };
   QUESTIONNAIRES.push(quiz);
   _saveCustomMeta();
+
+  // Rattacher l'examen au domaine
+  if (domainId) {
+    const dom = _allDomains().find(d => d.id === domainId);
+    if (dom && !(dom.examIds || []).includes(id)) {
+      if (!dom.examIds) dom.examIds = [];
+      dom.examIds.push(id);
+      if (dom.isCustom) _saveCustomDomains();
+    }
+  }
+
   hideAddExamModal();
-  _renderPicker();
+  // Aller dans le domaine de l'examen créé si on n'y est pas déjà
+  if (domainId && ACTIVE_ORG !== domainId) showOrgPicker(domainId);
+  else _renderPicker();
 }
 
 function _isSQLite(bytes) {
@@ -2854,42 +2906,151 @@ async function _generateFromYoutube(title, subtitle, perExam, timeMin, passT) {
 
     const id='custom_'+Date.now(), dbKey=id+'_db';
     await idbSet(dbKey, dbData);
+    let ytDomainId = document.getElementById('addex-domain')?.value || null;
+    if (ytDomainId === '__new__') {
+      const newName = document.getElementById('addex-new-domain-name')?.value.trim();
+      if (newName) {
+        const nd = { id: 'domain_' + Date.now(), name: newName, sub: '', isCustom: true, examIds: [] };
+        CUSTOM_DOMAINS.push(nd); _saveCustomDomains(); ytDomainId = nd.id;
+      } else { ytDomainId = null; }
+    }
     QUESTIONNAIRES.push({id,title,subtitle:subtitle||title,description:'Généré depuis YouTube',
-      dbKey,version:1,perExam,timeMin,passThreshold:passT,cssClass:'custom',isCustom:true});
+      dbKey,version:1,perExam,timeMin,passThreshold:passT,cssClass:'custom',isCustom:true,domain:ytDomainId||null});
     _saveCustomMeta();
+    if (ytDomainId) {
+      const dom = _allDomains().find(d => d.id === ytDomainId);
+      if (dom && !(dom.examIds||[]).includes(id)) { if (!dom.examIds) dom.examIds=[]; dom.examIds.push(id); if (dom.isCustom) _saveCustomDomains(); }
+    }
     hideAddExamModal();
-    _renderPicker();
+    if (ytDomainId && ACTIVE_ORG !== ytDomainId) showOrgPicker(ytDomainId);
+    else _renderPicker();
   } catch(e) {
     _addexLog('Erreur : '+e.message, 'err');
     btn.disabled=false; btn.textContent='Générer →';
   }
 }
 
-const _ORG_IDS = {
-  microsoft: ['ai900','dp300','az104','dp700'],
-  dama:      ['cdmp']
-};
+// ── Domains ───────────────────────────────────────────────────────────────────
+const BUILTIN_DOMAINS = [
+  {
+    id: 'microsoft',
+    name: 'Certifications Microsoft',
+    sub: 'Azure AI · Database · Infrastructure',
+    accentClass: 'microsoft',
+    examIds: ['ai900','dp300','az104','dp700']
+  },
+  {
+    id: 'dama',
+    name: 'Certifications CDMP',
+    sub: 'Data Management Body of Knowledge',
+    accentClass: 'dama',
+    examIds: ['cdmp']
+  }
+];
+
+const CUSTOM_DOMAIN_KEY = '_exam_custom_domains_v1';
+let CUSTOM_DOMAINS = [];
+
+function loadCustomDomains() {
+  try {
+    const raw = localStorage.getItem(CUSTOM_DOMAIN_KEY);
+    CUSTOM_DOMAINS = raw ? JSON.parse(raw) : [];
+  } catch(_) { CUSTOM_DOMAINS = []; }
+}
+
+function _saveCustomDomains() {
+  try { localStorage.setItem(CUSTOM_DOMAIN_KEY, JSON.stringify(CUSTOM_DOMAINS)); } catch(_) {}
+}
+
+function _allDomains() {
+  return [...BUILTIN_DOMAINS, ...CUSTOM_DOMAINS];
+}
+
+function _renderOrgScreen() {
+  const container = document.getElementById('org-cards-container');
+  if (!container) return;
+  const domains = _allDomains();
+  const cards = domains.map(d => {
+    const isCustom = !!d.isCustom;
+    const delBtn = isCustom
+      ? `<button class="org-del" onclick="event.stopPropagation();deleteCustomDomain('${d.id}')">✕</button>`
+      : '';
+
+    let accentStyle = '';
+    if (d.accentClass === 'microsoft') {
+      accentStyle = 'background:linear-gradient(90deg,#f25022 25%,#7fba00 25%,#7fba00 50%,#00a4ef 50%,#00a4ef 75%,#ffb900 75%)';
+    } else if (d.accentClass === 'dama') {
+      accentStyle = 'background:linear-gradient(90deg,#e65100,#ff8f00)';
+    } else {
+      accentStyle = 'background:linear-gradient(90deg,var(--gold),rgba(212,168,83,.4))';
+    }
+
+    let logoHtml = '';
+    if (d.id === 'microsoft') {
+      logoHtml = `<div class="org-logo"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 23 23" width="52" height="52">
+        <rect x="1" y="1" width="10" height="10" fill="#F25022"/>
+        <rect x="12" y="1" width="10" height="10" fill="#7FBA00"/>
+        <rect x="1" y="12" width="10" height="10" fill="#00A4EF"/>
+        <rect x="12" y="12" width="10" height="10" fill="#FFB900"/>
+      </svg></div>`;
+    } else if (d.id === 'dama') {
+      logoHtml = `<div class="org-logo">
+        <img src="https://www.dama.org/sites/default/files/inline-images/DAMA-logo.png" alt="DAMA"
+             onerror="this.style.display='none';this.nextElementSibling.style.display='block'">
+        <span style="display:none;font-family:var(--font-display);font-size:2.6rem;font-weight:800;color:#e65100;letter-spacing:-.03em">DAMA</span>
+      </div>`;
+    } else {
+      logoHtml = `<div class="org-logo"><span style="font-size:2.2rem">📚</span></div>`;
+    }
+
+    // Compute tags from current QUESTIONNAIRES for live count accuracy
+    const examTitles = (d.examIds || [])
+      .map(eid => { const q = QUESTIONNAIRES.find(x => x.id === eid); return q ? q.title : null; })
+      .filter(Boolean);
+    const tags = examTitles.map(t => `<span class="org-tag">${t}</span>`).join('');
+
+    return `<div class="org-card ${d.accentClass || 'custom-domain'}${isCustom ? ' custom-domain' : ''}" onclick="showOrgPicker('${d.id}')">
+      <div class="org-card-accent" style="${accentStyle}"></div>
+      ${delBtn}
+      ${logoHtml}
+      <div class="org-name">${d.name}</div>
+      <div class="org-sub">${d.sub || ''}</div>
+      ${tags ? `<div class="org-tags">${tags}</div>` : ''}
+    </div>`;
+  });
+
+  cards.push(`<div class="org-card add-domain" onclick="showAddDomainModal()">
+    <div style="font-size:28px;color:var(--text-dim)">➕</div>
+    <div style="font-size:11px;font-family:var(--font-mono);color:var(--text-dim);letter-spacing:.08em;text-transform:uppercase">Ajouter un domaine</div>
+  </div>`);
+
+  container.innerHTML = cards.join('');
+}
 
 function showOrgScreen() {
   ACTIVE_ORG = null;
+  _renderOrgScreen();
   showScreen('org-screen');
 }
 
-function showOrgPicker(org) {
-  ACTIVE_ORG = org;
-  const names = { microsoft: 'Microsoft', dama: 'DAMA International' };
-  const subs  = { microsoft: 'Certifications Azure & Data', dama: 'Data Management Body of Knowledge' };
+function showOrgPicker(domainId) {
+  ACTIVE_ORG = domainId;
+  const domain = _allDomains().find(d => d.id === domainId);
   const nameEl = document.getElementById('picker-org-name');
   const subEl  = document.getElementById('picker-org-sub');
-  if (nameEl) nameEl.textContent = names[org] || 'Exam Prep';
-  if (subEl)  subEl.textContent  = subs[org]  || 'Choisir un questionnaire';
+  if (nameEl) nameEl.textContent = domain ? domain.name : 'Exam Prep';
+  if (subEl)  subEl.textContent  = domain ? (domain.sub || 'Choisir un questionnaire') : 'Choisir un questionnaire';
   _renderPicker();
 }
 
 function _renderPicker() {
   const container = document.getElementById('quiz-cards-container');
-  const orgFilter = ACTIVE_ORG ? (_ORG_IDS[ACTIVE_ORG] || []) : null;
-  const quizzes   = QUESTIONNAIRES.filter(q => q.isCustom || !orgFilter || orgFilter.includes(q.id));
+  const domain = ACTIVE_ORG ? _allDomains().find(d => d.id === ACTIVE_ORG) : null;
+  const quizzes = QUESTIONNAIRES.filter(q => {
+    if (!domain) return true;
+    if (q.isCustom) return (q.domain === domain.id);
+    return (domain.examIds || []).includes(q.id);
+  });
   const cards = quizzes.map(q => {
     const delBtn = q.isCustom
       ? `<button class="custom-del" onclick="event.stopPropagation();deleteCustomExam('${q.id}')">✕</button>`
@@ -2907,13 +3068,44 @@ function _renderPicker() {
       </div>
     </div>`;
   });
-  // Carte "Ajouter un examen"
   cards.push(`<div class="quiz-card add-card" onclick="showAddExamModal()">
     <div class="add-card-icon">➕</div>
-    <div class="add-card-label">Ajouter un examen</div>
+    <div class="add-card-label">Ajouter un questionnaire</div>
   </div>`);
   container.innerHTML = cards.join('');
   showScreen('picker-screen');
+}
+
+// ── Domain modal ──────────────────────────────────────────────────────────────
+function showAddDomainModal() {
+  document.getElementById('adddomain-name').value = '';
+  document.getElementById('adddomain-sub').value  = '';
+  document.getElementById('adddomain-err').style.display = 'none';
+  document.getElementById('adddomain-overlay').style.display = 'flex';
+}
+
+function hideAddDomainModal() {
+  document.getElementById('adddomain-overlay').style.display = 'none';
+}
+
+function confirmAddDomain() {
+  const name = document.getElementById('adddomain-name').value.trim();
+  const sub  = document.getElementById('adddomain-sub').value.trim();
+  const err  = document.getElementById('adddomain-err');
+  if (!name) { err.textContent = '⚠️ Le nom est requis.'; err.style.display = 'block'; return; }
+  const id = 'domain_' + Date.now();
+  CUSTOM_DOMAINS.push({ id, name, sub: sub || '', isCustom: true, examIds: [] });
+  _saveCustomDomains();
+  hideAddDomainModal();
+  _renderOrgScreen();
+}
+
+function deleteCustomDomain(id) {
+  if (!confirm('Supprimer ce domaine ?')) return;
+  const idx = CUSTOM_DOMAINS.findIndex(d => d.id === id);
+  if (idx >= 0) CUSTOM_DOMAINS.splice(idx, 1);
+  _saveCustomDomains();
+  _renderOrgScreen();
 }
 
 // ── Exam flow ─────────────────────────────────────────────────────────────────
