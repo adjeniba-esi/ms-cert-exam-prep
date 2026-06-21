@@ -2929,6 +2929,7 @@ function startExam() {
   _updateLangButtons();
   showScreen('exam-screen');
   buildGrid(); renderQ();
+  _timerWallStart = Date.now(); _timerBaseRemaining = SL;
   TI = setInterval(tick, 1000);
 }
 
@@ -2938,10 +2939,12 @@ let PAUSE_BUDGET   = 300;
 let PAUSE_IV       = null;
 let PAUSE_T0       = null;
 let EXAM_TOTAL_SEC = 6000;
+let _timerWallStart      = 0;  // Date.now() au dernier start/resume
+let _timerBaseRemaining  = 0;  // SL au moment de _timerWallStart
 
 function tick() {
   if (PAUSED) return;
-  SL--;
+  SL = _timerBaseRemaining - Math.floor((Date.now() - _timerWallStart) / 1000);
   const el = document.getElementById('timer');
   if (SL <= 0 && !OVERTIME) {
     SL = 0;
@@ -2969,6 +2972,7 @@ function togglePause() {
 
 function pauseExam() {
   if (PAUSED || DONE || PAUSE_BUDGET <= 0) return;
+  SL = _timerBaseRemaining - Math.floor((Date.now() - _timerWallStart) / 1000);
   PAUSED   = true;
   PAUSE_T0 = Date.now();
   const pb = document.getElementById('pause-btn');
@@ -2988,6 +2992,7 @@ function resumeExam() {
   PAUSE_BUDGET = Math.max(0, PAUSE_BUDGET - used);
   clearInterval(PAUSE_IV); PAUSE_IV = null;
   PAUSED = false; PAUSE_T0 = null;
+  _timerWallStart = Date.now(); _timerBaseRemaining = SL;
   const pb = document.getElementById('pause-btn');
   if (pb) {
     const rem = PAUSE_BUDGET;
@@ -3057,6 +3062,7 @@ function _showOvertimeModal() {
 function _startOvertime() {
   OVERTIME = true;
   SL = 0;
+  _timerWallStart = Date.now(); _timerBaseRemaining = 0;
   const ov = document.getElementById('_overtime_ov'); if (ov) ov.remove();
   const el = document.getElementById('timer');
   if (el) { el.textContent = '+0:00'; el.className = 'overtime'; }
@@ -3066,6 +3072,12 @@ function _finishFromOvertime() {
   const ov = document.getElementById('_overtime_ov'); if (ov) ov.remove();
   finishExam();
 }
+
+// Quand l'onglet revient au premier plan, mettre a jour l'affichage sans
+// attendre la prochaine iteration du setInterval (throttle navigateur).
+document.addEventListener('visibilitychange', function() {
+  if (!document.hidden && TI && !DONE && !PAUSED) tick();
+});
 
 function buildGrid() {
   const g = document.getElementById('q-grid'); g.innerHTML = '';
