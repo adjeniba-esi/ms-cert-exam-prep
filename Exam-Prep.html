@@ -1841,6 +1841,7 @@ const LANG_FLAGS = {en:'🇬🇧', fr:'🇫🇷', es:'🇪🇸', de:'🇩🇪', 
 const LANG_NAMES = {en:'English', fr:'Français', es:'Español', de:'Deutsch', pt:'Português'};
 
 function showLangScreen(quiz) {
+  LANG = 'en';
   document.getElementById('ls-title').textContent = quiz.title;
   const container = document.getElementById('lang-cards-container');
   container.innerHTML = '';
@@ -1941,7 +1942,12 @@ function _showLangNotif(msg) {
 
 function _showTranslationModal(targetLang) {
   let modal = document.getElementById('_trans_modal');
-  if (modal) { modal.style.display='flex'; return; }
+  if (modal) {
+    // Update button for the new targetLang in case it changed
+    const btn = document.getElementById('_tgo');
+    if (btn) btn.onclick = () => _runTranslation(targetLang);
+    modal.style.display='flex'; return;
+  }
   const total = DB ? DB.exec('SELECT COUNT(*) FROM questions')[0].values[0][0] : '?';
   const langName = LANG_NAMES[targetLang]||targetLang;
   modal = document.createElement('div');
@@ -3263,7 +3269,7 @@ const pct = Math.round(correct / EQ.length * 100); const pass = pct >= pass_th;
     html += '<span class="domain-pct">'+p+'%</span></div>';
   });
   html += '</div><div style="display:flex;gap:10px;margin-top:1rem">';
-  html += '<button class="restart-btn" onclick="startExam()" style="flex:1">New random draw</button>';
+  html += '<button class="restart-btn" onclick="showLangScreen(CUR_QUIZ)" style="flex:1">New random draw</button>';
   html += '<button class="restart-btn" onclick="showHistory()" style="flex:0 0 auto;padding:12px 20px;color:var(--text-muted);border-color:var(--border)">Historique</button>';
   html += '</div>';
   rs.innerHTML = html;
