@@ -1,0 +1,8 @@
+#!/bin/sh
+set -e
+
+# Démarrer le backend API serve.py sur le port 8081 (interne, non exposé)
+cd /app && python bin/serve.py --port 8081 --host 127.0.0.1 --cors-origin https://{{ ingress_domain }} &
+
+# Démarrer Nginx en foreground
+exec nginx -g 'daemon off;'

@@ -1,0 +1,41 @@
+---
+# Déploie ms-cert-exam-prep dans un cluster Kind (ou tout cluster Kubernetes
+# dont l'image peut être chargée via "kind load docker-image").
+#
+# Usage :
+#   cd deploy/
+#   ansible-playbook deploy-k8s.yml -e ingress_domain=votre-domaine.com
+#
+# Prérequis :
+#   - Docker installé et daemon démarré
+#   - kind    installé dans local_bin_dir  (voir group_vars/all.yml)
+#   - kubectl installé dans local_bin_dir
+#   - Cluster Kind "{{ kind_cluster_name }}" créé et joignable via kubeconfig_path
+#   - Namespace "{{ demo_namespace }}" existant dans le cluster
+#   - ingress-nginx et cert-manager déployés dans le cluster
+
+- name: Déployer ms-cert-exam-prep à /prep-exam dans le cluster Kind
+  hosts: local
+  connection: local
+  become: false
+  gather_facts: true
+
+  environment:
+    PATH: "{{ local_bin_dir }}:{{ lookup('env', 'PATH') }}"
+    KUBECONFIG: "{{ kubeconfig_path }}"
+
+  vars:
+    # Racine du dépôt = répertoire parent de deploy/
+    exam_prep_src: "{{ playbook_dir | dirname }}"
+    exam_prep_image: "cnpg-exam-prep:latest"
+
+  pre_tasks:
+    - name: Vérifier que ingress_domain est défini
+      ansible.builtin.fail:
+        msg: >
+          ingress_domain n'est pas défini.
+          Passer : -e ingress_domain=cnpglab.freeddns.org
+      when: not ingress_domain
+
+  roles:
+    - exam_prep

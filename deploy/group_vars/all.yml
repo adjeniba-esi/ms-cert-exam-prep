@@ -1,0 +1,15 @@
+---
+# Binaires locaux (kind, kubectl installés par l'utilisateur)
+local_bin_dir: "{{ lookup('env', 'HOME') }}/.local/bin"
+
+# Cluster Kind cible
+kind_cluster_name: cnpg-playground
+
+# Kubeconfig dédié au cluster (évite d'interférer avec d'autres contextes)
+kubeconfig_path: "{{ lookup('env', 'HOME') }}/.kube/config-{{ kind_cluster_name }}"
+
+# Namespace Kubernetes où déployer
+demo_namespace: cnpg-demo
+
+# Domaine d'exposition (surcharger avec -e ingress_domain=votre-domaine.com)
+ingress_domain: ""
