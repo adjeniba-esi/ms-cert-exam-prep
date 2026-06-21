@@ -760,6 +760,7 @@
         <div class="addex-tabs">
           <button class="addex-tab active" id="tab-file" onclick="showAddExamTab('file')">📁 Fichier SQLite</button>
           <button class="addex-tab" id="tab-yt" onclick="showAddExamTab('youtube')">▶ YouTube</button>
+          <button class="addex-tab" id="tab-md" onclick="showAddExamTab('markdown')">📄 Markdown</button>
         </div>
         <div id="addex-source-file">
           <label class="addex-upload" id="addex-upload-lbl">
@@ -812,6 +813,52 @@
             <input type="password" id="addex-apikey" placeholder="sk-ant-...">
           </div>
           <div class="addex-progress" id="addex-progress"></div>
+        </div>
+        <div id="addex-source-md" style="display:none">
+          <label class="addex-upload" id="addex-md-upload-lbl">
+            <span class="addex-upload-icon">📄</span>
+            <span class="addex-upload-text" id="addex-md-upload-txt">
+              Importer un fichier .md / .txt<br>
+              <small style="opacity:.6">ou coller le contenu ci-dessous</small>
+            </span>
+            <input type="file" accept=".md,.txt,.markdown" id="addex-md-file"
+                   onchange="onAddExamMdFile(this)">
+          </label>
+          <textarea id="addex-md-text" rows="5"
+            placeholder="…ou coller le contenu Markdown ici"
+            style="width:100%;margin-top:8px;background:#0b0f1a;border:.5px solid #1e293b;border-radius:8px;padding:8px 12px;font-size:12px;font-family:var(--font-mono);color:#c8d6e5;outline:none;resize:vertical;box-sizing:border-box;transition:border-color .15s"
+          ></textarea>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px">
+            <div>
+              <label>Questions / segment</label>
+              <input type="number" id="addex-md-qpc" value="5" min="1" max="15">
+            </div>
+            <div>
+              <label>Modèle Claude</label>
+              <select id="addex-md-model" onchange="onAddExamMdModelChange()">
+                <option value="claude-haiku-4-5-20251001" selected>Haiku — rapide</option>
+                <option value="claude-sonnet-4-6">Sonnet — qualité</option>
+                <option value="ollama">Ollama — local</option>
+              </select>
+            </div>
+          </div>
+          <div id="addex-md-ollama-wrap" style="display:none;margin-top:8px">
+            <div style="display:grid;grid-template-columns:2fr 1fr;gap:10px">
+              <div>
+                <label>URL Ollama</label>
+                <input type="text" id="addex-md-ollama-url" value="http://localhost:11434" placeholder="http://localhost:11434">
+              </div>
+              <div>
+                <label>Modèle Ollama</label>
+                <input type="text" id="addex-md-ollama-model" value="llama3.2" placeholder="llama3.2">
+              </div>
+            </div>
+          </div>
+          <div id="addex-md-apikey-wrap" style="margin-top:8px">
+            <label>Clé API Anthropic <small style="opacity:.6;font-weight:400">(nécessaire pour générer les questions)</small></label>
+            <input type="password" id="addex-md-apikey" placeholder="sk-ant-...">
+          </div>
+          <div class="addex-progress" id="addex-md-progress"></div>
         </div>
       </div>
       <div class="addex-error" id="addex-err"></div>
@@ -2479,8 +2526,9 @@ async function importDB(file) {
 
 // ── Custom Exams (localStorage + IndexedDB) ──────────────────────────────────
 const CUSTOM_KEY  = '_exam_custom_quizzes_v1';
-let   _addexFile  = null;   // fichier SQLite sélectionné pour le nouvel examen
-let   _addexMode  = 'file'; // 'file' | 'youtube'
+let   _addexFile      = null;   // fichier SQLite sélectionné pour le nouvel examen
+let   _addexMode      = 'file'; // 'file' | 'youtube' | 'markdown'
+let   _addexMdContent = null;   // contenu texte du fichier Markdown chargé
 
 // Charger les examens personnalisés depuis localStorage
 function loadCustomExams() {
@@ -2550,6 +2598,12 @@ function showAddExamModal() {
   document.getElementById('addex-err').style.display = 'none';
   document.getElementById('addex-file').value = '';
   _addexFile = null;
+  // Reset Markdown state
+  _addexMdContent = null;
+  const mdFile = document.getElementById('addex-md-file'); if (mdFile) mdFile.value = '';
+  const mdText = document.getElementById('addex-md-text'); if (mdText) mdText.value = '';
+  const mdTxt  = document.getElementById('addex-md-upload-txt');
+  if (mdTxt) mdTxt.innerHTML = 'Importer un fichier .md / .txt<br><small style="opacity:.6">ou coller le contenu ci-dessous</small>';
   _populateAddexDomains();
   showAddExamTab('file');
   document.getElementById('addex-overlay').style.display = 'flex';
@@ -2558,6 +2612,7 @@ function showAddExamModal() {
 function hideAddExamModal() {
   document.getElementById('addex-overlay').style.display = 'none';
   _addexFile = null;
+  _addexMdContent = null;
   _addexMode = 'file';
   const btn = document.querySelector('.addex-create');
   if (btn) { btn.disabled = false; btn.textContent = "Créer l'examen →"; }
@@ -2565,21 +2620,25 @@ function hideAddExamModal() {
 
 function showAddExamTab(mode) {
   _addexMode = mode;
-  document.getElementById('addex-source-file').style.display = mode === 'file' ? '' : 'none';
-  document.getElementById('addex-source-yt').style.display   = mode === 'youtube' ? '' : 'none';
+  document.getElementById('addex-source-file').style.display = mode === 'file'     ? '' : 'none';
+  document.getElementById('addex-source-yt').style.display   = mode === 'youtube'  ? '' : 'none';
+  document.getElementById('addex-source-md').style.display   = mode === 'markdown' ? '' : 'none';
   document.getElementById('tab-file').classList.toggle('active', mode === 'file');
   document.getElementById('tab-yt').classList.toggle('active',   mode === 'youtube');
+  document.getElementById('tab-md').classList.toggle('active',   mode === 'markdown');
   const btn = document.querySelector('.addex-create');
-  if (btn) btn.textContent = mode === 'youtube' ? 'Générer →' : "Créer l'examen →";
-  if (mode === 'youtube') {
-    onAddExamModelChange();
-  }
-  const prog = document.getElementById('addex-progress');
-  if (prog) { prog.innerHTML = ''; prog.style.display = 'none'; }
+  const isGen = mode === 'youtube' || mode === 'markdown';
+  if (btn) btn.textContent = isGen ? 'Générer →' : "Créer l'examen →";
+  if (mode === 'youtube')  onAddExamModelChange();
+  if (mode === 'markdown') onAddExamMdModelChange();
+  const prog   = document.getElementById('addex-progress');
+  if (prog)   { prog.innerHTML   = ''; prog.style.display   = 'none'; }
+  const progMd = document.getElementById('addex-md-progress');
+  if (progMd) { progMd.innerHTML = ''; progMd.style.display = 'none'; }
 }
 
-function _addexLog(msg, cls) {
-  const prog = document.getElementById('addex-progress');
+function _addexLog(msg, cls, pid) {
+  const prog = document.getElementById(pid || 'addex-progress');
   prog.style.display = 'block';
   const div = document.createElement('div');
   div.className = 'addex-progress-line' + (cls ? ' ' + cls : '');
@@ -2630,6 +2689,10 @@ async function confirmAddExam() {
 
   if (_addexMode === 'youtube') {
     await _generateFromYoutube(title, subtitle, perExam, timeMin, passT);
+    return;
+  }
+  if (_addexMode === 'markdown') {
+    await _generateFromMarkdown(title, subtitle, perExam, timeMin, passT);
     return;
   }
 
@@ -2760,28 +2823,77 @@ var _QGN_SYSTEM = 'Tu es un expert en création de questionnaires de certificati
 
 function _invalidateApiKey() {
   sessionStorage.removeItem('_ak');
-  const w = document.getElementById('addex-apikey-wrap'); if (w) w.style.display = '';
+  const w  = document.getElementById('addex-apikey-wrap');    if (w)  w.style.display  = '';
+  const wm = document.getElementById('addex-md-apikey-wrap'); if (wm) wm.style.display = '';
 }
 
-async function _validateApiKey(apiKey) {
+function _createEmptyQuestionsDB() {
+  const db = new SQL.Database();
+  db.run(`CREATE TABLE questions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    domain TEXT NOT NULL DEFAULT 'General', question TEXT NOT NULL,
+    opt_a TEXT NOT NULL DEFAULT '', opt_b TEXT NOT NULL DEFAULT '',
+    opt_c TEXT NOT NULL DEFAULT '', opt_d TEXT NOT NULL DEFAULT '',
+    opt_e TEXT DEFAULT '', opt_f TEXT DEFAULT '',
+    correct_idx TEXT NOT NULL DEFAULT '0', explanation TEXT NOT NULL DEFAULT '',
+    is_complex INTEGER NOT NULL DEFAULT 0,
+    is_multi INTEGER NOT NULL DEFAULT 0, select_count INTEGER NOT NULL DEFAULT 1);
+  CREATE UNIQUE INDEX uq_question ON questions(question);
+  CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT);
+  INSERT INTO meta VALUES ('version','1'),('question_count','0');`);
+  return db;
+}
+
+async function _saveGeneratedQuiz(dbData, {title, subtitle, description, perExam, timeMin, passT}) {
+  const id = 'custom_' + Date.now(), dbKey = id + '_db';
+  await idbSet(dbKey, dbData);
+  let domainId = document.getElementById('addex-domain')?.value || null;
+  if (domainId === '__new__') {
+    const newName = document.getElementById('addex-new-domain-name')?.value.trim();
+    if (newName) {
+      const nd = { id: 'domain_' + Date.now(), name: newName, sub: '', isCustom: true, examIds: [] };
+      CUSTOM_DOMAINS.push(nd); _saveCustomDomains(); domainId = nd.id;
+    } else { domainId = null; }
+  }
+  QUESTIONNAIRES.push({
+    id, title, subtitle: subtitle || title, description,
+    dbKey, version: 1, perExam, timeMin, passThreshold: passT,
+    cssClass: 'custom', isCustom: true, domain: domainId || null
+  });
+  _saveCustomMeta();
+  if (domainId) {
+    const dom = _allDomains().find(d => d.id === domainId);
+    if (dom && !(dom.examIds || []).includes(id)) {
+      if (!dom.examIds) dom.examIds = [];
+      dom.examIds.push(id);
+      if (dom.isCustom) _saveCustomDomains();
+    }
+  }
+  return domainId;
+}
+
+async function _validateApiKey(apiKey, model) {
   try {
+    const m = model || document.getElementById('addex-yt-model')?.value || 'claude-haiku-4-5-20251001';
     const resp = await fetch(_API_BASE+'/api/translate', {
       method: 'POST',
       headers: {'Content-Type':'application/json','X-Api-Key':apiKey,'anthropic-version':'2023-06-01'},
-      body: JSON.stringify({model:document.getElementById('addex-yt-model')?.value||'claude-haiku-4-5-20251001',max_tokens:1,messages:[{role:'user',content:'test'}]})
+      body: JSON.stringify({model:m, max_tokens:1, messages:[{role:'user',content:'test'}]})
     });
     return resp.status !== 401;
   } catch(_) { return true; }
 }
 
-async function _callClaudeQGen(apiKey, chunk, nQ, title) {
-  const model      = document.getElementById('addex-yt-model')?.value || 'claude-haiku-4-5-20251001';
-  const msgContent = 'Vidéo : "'+title+'"\n\nGénère exactement '+nQ+' questions à partir de ce transcript :\n\n'+chunk;
+async function _callClaudeQGen(apiKey, chunk, nQ, title, opts) {
+  opts = opts || {};
+  const model       = opts.model       || document.getElementById('addex-yt-model')?.value || 'claude-haiku-4-5-20251001';
+  const srcLabel    = opts.srcLabel    || 'Vidéo';
+  const ollamaUrl   = (opts.ollamaUrl  || document.getElementById('addex-ollama-url')?.value  || 'http://localhost:11434').trim();
+  const ollamaModel = (opts.ollamaModel|| document.getElementById('addex-ollama-model')?.value || 'llama3.2').trim();
+  const msgContent  = srcLabel+' : "'+title+'"\n\nGénère exactement '+nQ+' questions à partir de ce contenu :\n\n'+chunk;
   let endpoint, body, headers;
 
   if (model === 'ollama') {
-    const ollamaUrl   = (document.getElementById('addex-ollama-url')?.value  || 'http://localhost:11434').trim();
-    const ollamaModel = (document.getElementById('addex-ollama-model')?.value || 'llama3.2').trim();
     endpoint = _API_BASE+'/api/ollama';
     body     = JSON.stringify({ollama_url:ollamaUrl, model:ollamaModel, system:_QGN_SYSTEM, messages:[{role:'user',content:msgContent}]});
     headers  = {'Content-Type':'application/json'};
@@ -2828,7 +2940,7 @@ async function _generateFromYoutube(title, subtitle, perExam, timeMin, passT) {
   const keyEl = document.getElementById('addex-apikey');
   if (keyEl && keyEl.value.trim()) apiKey = keyEl.value.trim();
 
-  if (!ytUrl)   { showAddExamError('URL YouTube requise.'); return; }
+  if (!ytUrl) { showAddExamError('URL YouTube requise.'); return; }
   const _useOllama = document.getElementById('addex-yt-model')?.value === 'ollama';
   if (!_useOllama && !apiKey) { showAddExamError('Clé API Anthropic requise.'); return; }
   const btn = document.querySelector('.addex-create');
@@ -2848,8 +2960,7 @@ async function _generateFromYoutube(title, subtitle, perExam, timeMin, passT) {
     }
     const logLine = _addexLog('Récupération des sous-titres via yt-dlp…', 'cur');
     const resp = await fetch(_API_BASE+'/api/transcript', {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
+      method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({url:ytUrl, lang})
     });
     if (!resp.ok) {
@@ -2860,20 +2971,7 @@ async function _generateFromYoutube(title, subtitle, perExam, timeMin, passT) {
     logLine.className = 'addex-progress-line ok';
     logLine.textContent = transcripts.length+' vidéo(s) — sous-titres récupérés.';
 
-    const db = new SQL.Database();
-    db.run(`CREATE TABLE questions (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      domain TEXT NOT NULL DEFAULT 'General', question TEXT NOT NULL,
-      opt_a TEXT NOT NULL DEFAULT '', opt_b TEXT NOT NULL DEFAULT '',
-      opt_c TEXT NOT NULL DEFAULT '', opt_d TEXT NOT NULL DEFAULT '',
-      opt_e TEXT DEFAULT '', opt_f TEXT DEFAULT '',
-      correct_idx TEXT NOT NULL DEFAULT '0', explanation TEXT NOT NULL DEFAULT '',
-      is_complex INTEGER NOT NULL DEFAULT 0,
-      is_multi INTEGER NOT NULL DEFAULT 0, select_count INTEGER NOT NULL DEFAULT 1);
-    CREATE UNIQUE INDEX uq_question ON questions(question);
-    CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT);
-    INSERT INTO meta VALUES ('version','1'),('question_count','0');`);
-
+    const db = _createEmptyQuestionsDB();
     var totalInserted = 0;
     for (var ti=0; ti<transcripts.length; ti++) {
       var tr = transcripts[ti];
@@ -2890,44 +2988,113 @@ async function _generateFromYoutube(title, subtitle, perExam, timeMin, passT) {
         } catch(e) {
           segLine.textContent = '  Segment '+(ci+1)+' — ERREUR : '+e.message;
           segLine.className   = 'addex-progress-line err';
-          if (e.message.includes('401')) {
-            _invalidateApiKey();
-            throw new Error('Clé API invalide (401). Corrigez-la ci-dessus et réessayez.');
-          }
+          if (e.message.includes('401')) { _invalidateApiKey(); throw new Error('Clé API invalide (401). Corrigez-la ci-dessus et réessayez.'); }
         }
       }
     }
-
     if (!totalInserted) throw new Error('Aucune question générée. Vérifiez la clé API et les sous-titres.');
-
     db.run("INSERT OR REPLACE INTO meta VALUES ('question_count',?)",[String(totalInserted)]);
     const dbData = db.export(); db.close();
     _addexLog('✓ '+totalInserted+' question(s) générée(s).', 'ok');
-
-    const id='custom_'+Date.now(), dbKey=id+'_db';
-    await idbSet(dbKey, dbData);
-    let ytDomainId = document.getElementById('addex-domain')?.value || null;
-    if (ytDomainId === '__new__') {
-      const newName = document.getElementById('addex-new-domain-name')?.value.trim();
-      if (newName) {
-        const nd = { id: 'domain_' + Date.now(), name: newName, sub: '', isCustom: true, examIds: [] };
-        CUSTOM_DOMAINS.push(nd); _saveCustomDomains(); ytDomainId = nd.id;
-      } else { ytDomainId = null; }
-    }
-    QUESTIONNAIRES.push({id,title,subtitle:subtitle||title,description:'Généré depuis YouTube',
-      dbKey,version:1,perExam,timeMin,passThreshold:passT,cssClass:'custom',isCustom:true,domain:ytDomainId||null});
-    _saveCustomMeta();
-    if (ytDomainId) {
-      const dom = _allDomains().find(d => d.id === ytDomainId);
-      if (dom && !(dom.examIds||[]).includes(id)) { if (!dom.examIds) dom.examIds=[]; dom.examIds.push(id); if (dom.isCustom) _saveCustomDomains(); }
-    }
+    const domainId = await _saveGeneratedQuiz(dbData, {title, subtitle, description:'Généré depuis YouTube', perExam, timeMin, passT});
     hideAddExamModal();
-    if (ytDomainId && ACTIVE_ORG !== ytDomainId) showOrgPicker(ytDomainId);
-    else _renderPicker();
+    if (domainId && ACTIVE_ORG !== domainId) showOrgPicker(domainId); else _renderPicker();
   } catch(e) {
     _addexLog('Erreur : '+e.message, 'err');
     btn.disabled=false; btn.textContent='Générer →';
   }
+}
+
+async function _generateFromMarkdown(title, subtitle, perExam, timeMin, passT) {
+  if (!location.protocol.startsWith('http')) {
+    showAddExamError('Cette fonctionnalité nécessite le mode HTTP. Lancez : python bin/serve.py'); return;
+  }
+  const text = _addexMdContent || document.getElementById('addex-md-text')?.value.trim();
+  if (!text) { showAddExamError('Importez un fichier .md ou collez du contenu Markdown.'); return; }
+
+  const qpc        = parseInt(document.getElementById('addex-md-qpc').value) || 5;
+  const model      = document.getElementById('addex-md-model')?.value || 'claude-haiku-4-5-20251001';
+  const _useOllama = model === 'ollama';
+  const ollamaUrl  = (document.getElementById('addex-md-ollama-url')?.value  || 'http://localhost:11434').trim();
+  const ollamaModel= (document.getElementById('addex-md-ollama-model')?.value || 'llama3.2').trim();
+
+  let apiKey = sessionStorage.getItem('_ak') || '';
+  const keyEl = document.getElementById('addex-md-apikey');
+  if (keyEl && keyEl.value.trim()) apiKey = keyEl.value.trim();
+  if (!_useOllama && !apiKey) { showAddExamError('Clé API Anthropic requise.'); return; }
+
+  const btn = document.querySelector('.addex-create');
+  btn.disabled = true; btn.textContent = '⏳ En cours...';
+  document.getElementById('addex-err').style.display = 'none';
+
+  const LOG = (msg, cls) => _addexLog(msg, cls, 'addex-md-progress');
+
+  try {
+    if (!_useOllama) {
+      const keyLine = LOG('Vérification de la clé API…', 'cur');
+      if (!await _validateApiKey(apiKey, model)) {
+        _invalidateApiKey();
+        keyLine.textContent = 'Clé API invalide.'; keyLine.className = 'addex-progress-line err';
+        throw new Error('Clé API invalide (401). Saisissez une clé valide ci-dessus et réessayez.');
+      }
+      sessionStorage.setItem('_ak', apiKey);
+      keyLine.textContent = 'Clé API validée ✓'; keyLine.className = 'addex-progress-line ok';
+    }
+
+    const chunks = _chunkText(text, 1500);
+    LOG('Document découpé en ' + chunks.length + ' segment(s).', 'ok');
+
+    const db = _createEmptyQuestionsDB();
+    const opts = { model, srcLabel: 'Document', ollamaUrl, ollamaModel };
+    var totalInserted = 0;
+    for (var ci = 0; ci < chunks.length; ci++) {
+      var segLine = LOG('  Segment '+(ci+1)+'/'+chunks.length+'…', 'cur');
+      try {
+        var qs  = await _callClaudeQGen(apiKey, chunks[ci], qpc, title, opts);
+        var res = _insertQuestionsIntoDB(db, qs);
+        totalInserted += res.inserted;
+        segLine.textContent = '  Segment '+(ci+1)+'/'+chunks.length+' → '+res.inserted+' question(s)';
+        segLine.className   = 'addex-progress-line ok';
+      } catch(e) {
+        segLine.textContent = '  Segment '+(ci+1)+' — ERREUR : '+e.message;
+        segLine.className   = 'addex-progress-line err';
+        if (e.message.includes('401')) { _invalidateApiKey(); throw new Error('Clé API invalide (401). Corrigez-la ci-dessus et réessayez.'); }
+      }
+    }
+    if (!totalInserted) throw new Error('Aucune question générée. Vérifiez le contenu du fichier et la clé API.');
+    db.run("INSERT OR REPLACE INTO meta VALUES ('question_count',?)",[String(totalInserted)]);
+    const dbData = db.export(); db.close();
+    LOG('✓ '+totalInserted+' question(s) générée(s).', 'ok');
+    const domainId = await _saveGeneratedQuiz(dbData, {title, subtitle, description:'Généré depuis Markdown', perExam, timeMin, passT});
+    hideAddExamModal();
+    if (domainId && ACTIVE_ORG !== domainId) showOrgPicker(domainId); else _renderPicker();
+  } catch(e) {
+    LOG('Erreur : '+e.message, 'err');
+    btn.disabled=false; btn.textContent='Générer →';
+  }
+}
+
+function onAddExamMdFile(input) {
+  const f = input.files[0];
+  if (!f) { _addexMdContent = null; return; }
+  const reader = new FileReader();
+  reader.onload = function(ev) {
+    _addexMdContent = ev.target.result;
+    const words = _addexMdContent.trim().split(/\s+/).length;
+    const txt = document.getElementById('addex-md-upload-txt');
+    if (txt) txt.innerHTML = '<span class="addex-upload-name">✓ '+f.name+'</span><br>' +
+      '<small style="opacity:.6">'+Math.round(f.size/1024)+' KB · '+words+' mots</small>';
+  };
+  reader.readAsText(f, 'utf-8');
+}
+
+function onAddExamMdModelChange() {
+  const model      = document.getElementById('addex-md-model')?.value;
+  const isOllama   = model === 'ollama';
+  const ollamaWrap = document.getElementById('addex-md-ollama-wrap');
+  const apikeyWrap = document.getElementById('addex-md-apikey-wrap');
+  if (ollamaWrap) ollamaWrap.style.display = isOllama ? '' : 'none';
+  if (apikeyWrap) apikeyWrap.style.display = (isOllama || !!sessionStorage.getItem('_ak')) ? 'none' : '';
 }
 
 // ── Domains ───────────────────────────────────────────────────────────────────
