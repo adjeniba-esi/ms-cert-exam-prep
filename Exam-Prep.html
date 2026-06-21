@@ -828,7 +828,14 @@
             placeholder="…ou coller le contenu Markdown ici"
             style="width:100%;margin-top:8px;background:#0b0f1a;border:.5px solid #1e293b;border-radius:8px;padding:8px 12px;font-size:12px;font-family:var(--font-mono);color:#c8d6e5;outline:none;resize:vertical;box-sizing:border-box;transition:border-color .15s"
           ></textarea>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px">
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:8px">
+            <div>
+              <label>Langue du contenu</label>
+              <select id="addex-md-lang">
+                <option value="fr" selected>fr — Français</option>
+                <option value="en">en — English</option>
+              </select>
+            </div>
             <div>
               <label>Questions / segment</label>
               <input type="number" id="addex-md-qpc" value="5" min="1" max="15">
@@ -1882,6 +1889,7 @@ function prepExam() {
 // MULTILINGUAL — Language picker + in-exam switcher + SQLite translation storage
 // ═══════════════════════════════════════════════════════════════════════════════
 let LANG = 'en';
+let _BASE_LANG = 'en';
 const EXAM_TR = new Map();
 const LANG_FLAGS = {en:'🇬🇧', fr:'🇫🇷', es:'🇪🇸', de:'🇩🇪', pt:'🇵🇹'};
 const LANG_NAMES = {en:'English', fr:'Français', es:'Español', de:'Deutsch', pt:'Português'};
@@ -1891,12 +1899,20 @@ function showLangScreen(quiz) {
   document.getElementById('ls-title').textContent = quiz.title;
   const container = document.getElementById('lang-cards-container');
   container.innerHTML = '';
-  let available = ['en'];
+  let baseLang = 'en';
+  try {
+    const bl = DB.exec("SELECT value FROM meta WHERE key='base_lang'");
+    if (bl.length && bl[0].values.length) baseLang = bl[0].values[0][0];
+  } catch(_) {}
+  _BASE_LANG = baseLang;
+  LANG = baseLang;
+  let available = [baseLang];
   try {
     const res = DB.exec("SELECT DISTINCT lang FROM question_translations ORDER BY lang");
     if (res.length) res[0].values.forEach(r => { if (!available.includes(r[0])) available.push(r[0]); });
   } catch(_) {}
-  const showLangs = [...new Set([...available, 'fr'])];
+  // Always show fr and en as options (translate on demand if not available)
+  const showLangs = [...new Set([...available, baseLang === 'en' ? 'fr' : 'en'])];
   showLangs.forEach(lang => {
     const isAvail = available.includes(lang);
     const card = document.createElement('div');
@@ -1926,7 +1942,7 @@ function selectLangAndStart(lang, isAvailable) {
 
 function switchExamLang(lang) {
   if (LANG === lang) return;
-  let avail = lang === 'en';
+  let avail = lang === _BASE_LANG;
   if (!avail) {
     try {
       const r = DB.exec(`SELECT COUNT(*) FROM question_translations WHERE lang='${lang}'`);
@@ -1939,7 +1955,7 @@ function switchExamLang(lang) {
 
 function _loadExamTranslations() {
   EXAM_TR.clear();
-  if (LANG === 'en' || !EQ.length) return;
+  if (LANG === _BASE_LANG || !EQ.length) return;
   try {
     const ids = EQ.map(q => q.id).join(',');
     const res = DB.exec(
@@ -2986,6 +3002,7 @@ async function _generateFromYoutube(title, subtitle, perExam, timeMin, passT) {
     }
     if (!totalInserted) throw new Error('Aucune question générée. Vérifiez la clé API et les sous-titres.');
     db.run("INSERT OR REPLACE INTO meta VALUES ('question_count',?)",[String(totalInserted)]);
+    db.run("INSERT OR REPLACE INTO meta VALUES ('base_lang',?)",[lang]);
     const dbData = db.export(); db.close();
     _addexLog('✓ '+totalInserted+' question(s) générée(s).', 'ok');
     const domainId = await _saveGeneratedQuiz(dbData, {title, subtitle, description:'Généré depuis YouTube', perExam, timeMin, passT});
@@ -3004,6 +3021,7 @@ async function _generateFromMarkdown(title, subtitle, perExam, timeMin, passT) {
   const text = document.getElementById('addex-md-text')?.value.trim();
   if (!text) { showAddExamError('Importez un fichier .md ou collez du contenu Markdown.'); return; }
 
+  const lang       = document.getElementById('addex-md-lang')?.value || 'fr';
   const qpc        = parseInt(document.getElementById('addex-md-qpc').value) || 5;
   const model      = document.getElementById('addex-md-model')?.value || 'claude-haiku-4-5-20251001';
   const _useOllama = model === 'ollama';
@@ -3055,6 +3073,7 @@ async function _generateFromMarkdown(title, subtitle, perExam, timeMin, passT) {
     }
     if (!totalInserted) throw new Error('Aucune question générée. Vérifiez le contenu du fichier et la clé API.');
     db.run("INSERT OR REPLACE INTO meta VALUES ('question_count',?)",[String(totalInserted)]);
+    db.run("INSERT OR REPLACE INTO meta VALUES ('base_lang',?)",[lang]);
     const dbData = db.export(); db.close();
     LOG('✓ '+totalInserted+' question(s) générée(s).', 'ok');
     const domainId = await _saveGeneratedQuiz(dbData, {title, subtitle, description:'Généré depuis Markdown', perExam, timeMin, passT});
