@@ -47,8 +47,8 @@ docker run --rm -p 8080:8080 exam-prep-local
 ### Mode 4 — Cluster Kubernetes (Kind)
 
 ```bash
-# Depuis le dépôt de déploiement cnpg-playground :
-ansible-playbook deploy-exam-prep.yml -e ingress_domain=votre-domaine.com
+cd deploy/
+ansible-playbook deploy-k8s.yml -e ingress_domain=votre-domaine.com
 # Disponible sur : https://votre-domaine.com/prep-exam/
 ```
 
@@ -602,105 +602,85 @@ En production, l'image embarque nginx + serve.py dans le même container :
 [serve.py :8081]  ──  proxy Anthropic / yt-dlp / Ollama
 ```
 
+### Arborescence du répertoire `deploy/`
+
+```
+deploy/
+├── ansible.cfg                            Configuration Ansible locale
+├── inventory.ini                          Inventaire (localhost)
+├── group_vars/
+│   └── all.yml                            Variables : kind_cluster_name, kubeconfig_path, demo_namespace…
+├── deploy-k8s.yml                         Playbook principal
+└── roles/exam_prep/
+    ├── files/
+    │   ├── Dockerfile.k8s                 Image Alpine + nginx + yt-dlp
+    │   └── nginx-exam.conf                Config nginx (proxy /api/* → serve.py:8081)
+    ├── tasks/main.yml                     Tâches Ansible
+    └── templates/
+        ├── exam-prep-manifests.yaml.j2    Deployment + Service + Ingress
+        └── start.sh.j2                    Script démarrage (--cors-origin paramétré)
+```
+
 ### Prérequis
 
-- Cluster Kubernetes avec `ingress-nginx` et `cert-manager`
-- `kubectl` et `kind` (pour un cluster local Kind)
-- `docker` pour le build de l'image
-- Ansible (`ansible-playbook`)
+- Docker installé et daemon démarré
+- `kind` dans `~/.local/bin/` (ou adapter `local_bin_dir` dans `group_vars/all.yml`)
+- `kubectl` dans `~/.local/bin/`
+- Ansible (`pip install ansible`)
+- Cluster Kind existant nommé `cnpg-playground` (ou adapter `kind_cluster_name`)
+- Namespace `cnpg-demo` existant dans le cluster (ou adapter `demo_namespace`)
+- `ingress-nginx` et `cert-manager` déployés dans le cluster
 
-### Image Docker de production
-
-L'image de production (distincte du `Dockerfile` de dev local) est construite
-par le playbook Ansible depuis les fichiers dans le dépôt de déploiement.
-Elle se base sur `python:3.12-alpine` + `apk add nginx` + `pip install yt-dlp`.
-
-### Déploiement avec Ansible (cluster Kind)
+### Déploiement
 
 ```bash
-# Depuis le dépôt de déploiement (cnpg-playground)
-ansible-playbook deploy-exam-prep.yml \
-  -e ingress_domain=votre-domaine.example.com
+cd deploy/
+ansible-playbook deploy-k8s.yml -e ingress_domain=votre-domaine.com
 ```
 
 Le playbook effectue dans l'ordre :
 
-1. Copie le `Dockerfile.exam-prep`, `nginx-exam.conf` et `start.sh` dans le
-   répertoire source de l'application
-2. `docker build` de l'image `cnpg-exam-prep:latest`
-3. Nettoyage des fichiers temporaires copiés
-4. `kind load docker-image` pour injecter l'image dans le cluster Kind
-5. Génération et application des manifestes Kubernetes (Deployment + Service + Ingress)
-6. `kubectl rollout restart deployment/exam-prep`
-7. Attente du rollout (`--timeout=120s`)
+1. Copie temporaire de `Dockerfile.k8s` et `nginx-exam.conf` dans la racine du dépôt (contexte Docker)
+2. Génère `start.sh` depuis `start.sh.j2` avec le domaine cible
+3. `docker build -f Dockerfile.k8s -t cnpg-exam-prep:latest .`
+4. Nettoyage des fichiers temporaires
+5. `kind load docker-image cnpg-exam-prep:latest --name <kind_cluster_name>`
+6. Génération et application des manifestes Kubernetes (Deployment + Service + Ingress)
+7. `kubectl rollout restart deployment/exam-prep`
+8. Attente du rollout (`--timeout=120s`)
+
+### Personnalisation
+
+Les variables par défaut sont dans `deploy/group_vars/all.yml` :
+
+| Variable | Défaut | Description |
+|---|---|---|
+| `local_bin_dir` | `~/.local/bin` | Répertoire contenant `kind` et `kubectl` |
+| `kind_cluster_name` | `cnpg-playground` | Nom du cluster Kind cible |
+| `kubeconfig_path` | `~/.kube/config-<cluster>` | Kubeconfig dédié |
+| `demo_namespace` | `cnpg-demo` | Namespace de déploiement |
+| `ingress_domain` | _(vide)_ | Domaine public — **obligatoire via `-e`** |
+
+Toutes ces variables peuvent être surchargées en ligne de commande :
+
+```bash
+ansible-playbook deploy-k8s.yml \
+  -e ingress_domain=mon-domaine.com \
+  -e kind_cluster_name=mon-cluster \
+  -e demo_namespace=mon-namespace
+```
 
 ### Manifestes Kubernetes
 
-**Deployment** — 1 replica, requests `50m/64Mi`, limits `200m/128Mi`.
+**Deployment** — 1 replica, `imagePullPolicy: Never` (image locale Kind), requests `50m/64Mi`, limits `200m/128Mi`.
 
 **Service** — `ClusterIP` sur le port 80.
 
-**Ingress** — règle `Prefix /prep-exam` vers le service. Le bloc `tls:` est géré
-par un ingress séparé (frontend) ; ne pas dupliquer `tls:` pour le même host sous
-peine de conflit de certificat dans nginx-ingress.
-
-```yaml
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: exam-prep
-spec:
-  ingressClassName: nginx
-  rules:
-  - host: votre-domaine.example.com
-    http:
-      paths:
-      - path: /prep-exam
-        pathType: Prefix
-        backend:
-          service:
-            name: exam-prep
-            port:
-              number: 80
-```
-
-### Nginx dans le container
-
-Configuration dans `nginx-exam.conf` (Alpine utilise `/etc/nginx/http.d/`, pas `conf.d/`) :
-
-```nginx
-server {
-    listen 80;
-    root /usr/share/nginx/html;
-
-    location = /prep-exam { return 301 /prep-exam/; }
-
-    location ~ ^/prep-exam(/api/.+)$ {
-        proxy_pass         http://127.0.0.1:8081$1;
-        proxy_read_timeout 600s;
-    }
-
-    location /prep-exam/ { try_files $uri $uri/ =404; }
-}
-```
-
-### Variables d'environnement et configuration CORS
-
-En production, serve.py est lancé avec l'origine explicite pour restreindre
-l'accès au proxy API :
-
-```sh
-python bin/serve.py \
-  --port 8081 \
-  --host 127.0.0.1 \
-  --cors-origin https://votre-domaine.example.com
-```
-
-Cela garantit que seul le navigateur servi depuis votre domaine peut utiliser
-les endpoints `/api/*` comme proxy vers Anthropic.
+**Ingress** — règle `Prefix /prep-exam` vers le service. Pas de bloc `tls:` dans cet ingress — le TLS est géré par un ingress séparé (frontend) pour éviter le conflit de certificat dans nginx-ingress lorsque plusieurs ingresses partagent le même host.
 
 ### Sécurité de la clé API
 
 - Stockée dans `sessionStorage` du navigateur — effacée automatiquement à la fermeture de l'onglet ou du navigateur
 - Transmise en header `X-Api-Key` via HTTPS, jamais loggée ni stockée côté serveur
 - Validée par un appel test minimal (1 token) avant tout téléchargement de sous-titres
+- `--cors-origin https://{{ ingress_domain }}` restreint le proxy `/api/*` à votre seule origine
