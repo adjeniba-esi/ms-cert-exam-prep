@@ -130,7 +130,8 @@ class ProxyHandler(http.server.SimpleHTTPRequestHandler):
         try:
             with tempfile.TemporaryDirectory() as tmpdir:
                 with _yt_dlp.YoutubeDL({'quiet': True, 'no_warnings': True,
-                                         'extract_flat': True}) as ydl:
+                                         'extract_flat': True,
+                                         'source_address': '0.0.0.0'}) as ydl:
                     info = ydl.extract_info(url, download=False)
 
                 if 'entries' in info:
@@ -161,6 +162,7 @@ class ProxyHandler(http.server.SimpleHTTPRequestHandler):
                         'retries': 5,
                         'sleep_interval': 2,
                         'sleep_interval_requests': 1,
+                        'source_address': '0.0.0.0',
                     }
                     with _yt_dlp.YoutubeDL(ydl_opts) as ydl:
                         ydl.download(['https://youtu.be/' + video['id']])
