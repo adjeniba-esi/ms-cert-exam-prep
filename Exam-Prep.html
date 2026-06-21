@@ -110,6 +110,8 @@
   .brand span{color:var(--text-muted);font-weight:400;font-size:0.95rem}
   #timer{font-family:var(--font-mono);font-size:13px;font-weight:500;color:var(--text-muted);background:var(--surface);border:0.5px solid var(--border);padding:5px 14px;border-radius:99px;letter-spacing:0.08em;transition:color .3s,border-color .3s}
   #timer.warn{color:var(--red);border-color:rgba(224,82,82,0.4)}
+  #timer.overtime{color:var(--gold);border-color:rgba(212,175,55,0.5);animation:overtime-pulse 1.5s ease-in-out infinite}
+  @keyframes overtime-pulse{0%,100%{opacity:1}50%{opacity:.6}}
   .progress-wrap{margin-bottom:2rem}
   .progress-meta{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px}
   .progress-label{font-size:11px;color:var(--text-dim);letter-spacing:0.12em;text-transform:uppercase}
@@ -1673,6 +1675,7 @@ function _ok(eq, i) {
 
 // ── Exam state ────────────────────────────────────────────────────────────────
 let EQ = [], cQ = 0, ANS = {}, SKP = new Set(), TI = null, SL = 6000, DONE = false;
+let OVERTIME = false;
 const CRR = {};
 
 function shuf(a) {
@@ -2912,7 +2915,7 @@ function startExam() {
   if (!DB) { alert('Database not ready.'); return; }
   cQ = 0; ANS = {}; SKP = new Set();
   EXAM_TOTAL_SEC = (EXAM_CONFIG.timeMin || (CUR_QUIZ ? CUR_QUIZ.timeMin : 100)) * 60;
-  SL = EXAM_TOTAL_SEC; DONE = false;
+  SL = EXAM_TOTAL_SEC; DONE = false; OVERTIME = false;
   PAUSED = false; PAUSE_BUDGET = (EXAM_CONFIG.pauseMin || 0) * 60; PAUSE_T0 = null;
   clearInterval(PAUSE_IV); PAUSE_IV = null; _hidePauseOverlay();
   const pb_ = document.getElementById('pause-btn');
@@ -2939,12 +2942,23 @@ let EXAM_TOTAL_SEC = 6000;
 function tick() {
   if (PAUSED) return;
   SL--;
-  if (SL <= 0) { finishExam(); return; }
-  const m = Math.floor(SL / 60), s = SL % 60;
   const el = document.getElementById('timer');
+  if (SL <= 0 && !OVERTIME) {
+    SL = 0;
+    if (el) { el.textContent = '0:00'; el.className = 'warn'; }
+    _showOvertimeModal();
+    return;
+  }
   if (el) {
-    el.textContent = m + ':' + (s < 10 ? '0' : '') + s;
-    el.className = SL < 300 ? 'warn' : '';
+    if (OVERTIME) {
+      const extra = -SL, m = Math.floor(extra / 60), s = extra % 60;
+      el.textContent = '+' + m + ':' + (s < 10 ? '0' : '') + s;
+      el.className = 'overtime';
+    } else {
+      const m = Math.floor(SL / 60), s = SL % 60;
+      el.textContent = m + ':' + (s < 10 ? '0' : '') + s;
+      el.className = SL < 300 ? 'warn' : '';
+    }
   }
 }
 
@@ -3019,6 +3033,38 @@ function _updatePauseOverlay(rem) {
 function _hidePauseOverlay() {
   const ov = document.getElementById('_pause_ov');
   if (ov) ov.style.display = 'none';
+}
+
+function _showOvertimeModal() {
+  if (document.getElementById('_overtime_ov')) return;
+  const ov = document.createElement('div');
+  ov.id = '_overtime_ov'; ov.className = 'pause-overlay';
+  ov.innerHTML =
+    '<div class="pause-modal">' +
+      '<div class="pause-icon">&#9200;</div>' +
+      '<div class="pause-title">Temps écoulé</div>' +
+      '<div class="pause-sub">Souhaitez-vous continuer en temps supplémentaire<br>' +
+        'ou terminer l\'examen maintenant ?</div>' +
+      '<div style="display:flex;gap:12px;margin-top:20px;justify-content:center">' +
+        '<button class="resume-btn" style="background:rgba(255,255,255,0.08);color:var(--text);border:0.5px solid var(--border)" onclick="_startOvertime()">Continuer</button>' +
+        '<button class="resume-btn" onclick="_finishFromOvertime()">Terminer</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(ov);
+  ov.style.display = 'flex';
+}
+
+function _startOvertime() {
+  OVERTIME = true;
+  SL = 0;
+  const ov = document.getElementById('_overtime_ov'); if (ov) ov.remove();
+  const el = document.getElementById('timer');
+  if (el) { el.textContent = '+0:00'; el.className = 'overtime'; }
+}
+
+function _finishFromOvertime() {
+  const ov = document.getElementById('_overtime_ov'); if (ov) ov.remove();
+  finishExam();
 }
 
 function buildGrid() {
@@ -3170,7 +3216,9 @@ function skipQ() { SKP.add(cQ); nextQ(); }
 function jumpTo(i) { cQ = i; renderQ(); }
 
 async function finishExam() {
-  if (DONE) return; DONE = true; clearInterval(TI); clearInterval(PAUSE_IV); PAUSE_IV = null; _hidePauseOverlay();
+  if (DONE) return; DONE = true; OVERTIME = false;
+  clearInterval(TI); clearInterval(PAUSE_IV); PAUSE_IV = null; _hidePauseOverlay();
+  const _otOv = document.getElementById('_overtime_ov'); if (_otOv) _otOv.remove();
   let correct = 0, cxTotal = 0, cxCorrect = 0; const ds = {};
   EQ.forEach((q, i) => {
     if (!ds[q.d]) ds[q.d] = {c:0,t:0}; ds[q.d].t++;
@@ -3186,7 +3234,7 @@ function renderResult(correct, cxCorrect, cxTotal, ds) {
   const rs  = document.getElementById('result-screen');
   const pass_th = CUR_QUIZ ? CUR_QUIZ.passThreshold : 70;
 const pct = Math.round(correct / EQ.length * 100); const pass = pct >= pass_th;
-  const dur = 5400 - SL; const dm = Math.floor(dur/60), ds2 = dur%60;
+  const dur = EXAM_TOTAL_SEC - SL; const dm = Math.floor(dur/60), ds2 = dur%60;
   let html = '<div class="result-header">';
   html += '<div class="result-score">' + pct + '<span>%</span></div>';
   html += '<div class="result-sub">' + correct + ' correct / ' + EQ.length + ' questions · ' + Object.keys(ANS).length + ' répondues · ' + dm + 'm ' + ds2 + 's</div>';
