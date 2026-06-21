@@ -2528,7 +2528,6 @@ async function importDB(file) {
 const CUSTOM_KEY  = '_exam_custom_quizzes_v1';
 let   _addexFile      = null;   // fichier SQLite sélectionné pour le nouvel examen
 let   _addexMode      = 'file'; // 'file' | 'youtube' | 'markdown'
-let   _addexMdContent = null;   // contenu texte du fichier Markdown chargé
 
 // Charger les examens personnalisés depuis localStorage
 function loadCustomExams() {
@@ -2599,7 +2598,6 @@ function showAddExamModal() {
   document.getElementById('addex-file').value = '';
   _addexFile = null;
   // Reset Markdown state
-  _addexMdContent = null;
   const mdFile = document.getElementById('addex-md-file'); if (mdFile) mdFile.value = '';
   const mdText = document.getElementById('addex-md-text'); if (mdText) mdText.value = '';
   const mdTxt  = document.getElementById('addex-md-upload-txt');
@@ -2612,7 +2610,6 @@ function showAddExamModal() {
 function hideAddExamModal() {
   document.getElementById('addex-overlay').style.display = 'none';
   _addexFile = null;
-  _addexMdContent = null;
   _addexMode = 'file';
   const btn = document.querySelector('.addex-create');
   if (btn) { btn.disabled = false; btn.textContent = "Créer l'examen →"; }
@@ -2654,14 +2651,16 @@ function showAddExamError(msg) {
   err.style.display = 'block';
 }
 
-function onAddExamModelChange() {
-  const model     = document.getElementById('addex-yt-model')?.value;
-  const isOllama  = model === 'ollama';
-  const ollamaWrap = document.getElementById('addex-ollama-wrap');
-  const apikeyWrap = document.getElementById('addex-apikey-wrap');
+function _toggleGenerationModelFields(modelId, ollamaWrapId, apikeyWrapId) {
+  const model = document.getElementById(modelId)?.value;
+  const isOllama = model === 'ollama';
+  const ollamaWrap = document.getElementById(ollamaWrapId);
+  const apikeyWrap = document.getElementById(apikeyWrapId);
   if (ollamaWrap) ollamaWrap.style.display = isOllama ? '' : 'none';
   if (apikeyWrap) apikeyWrap.style.display = (isOllama || !!sessionStorage.getItem('_ak')) ? 'none' : '';
 }
+function onAddExamModelChange()   { _toggleGenerationModelFields('addex-yt-model', 'addex-ollama-wrap', 'addex-apikey-wrap'); }
+function onAddExamMdModelChange() { _toggleGenerationModelFields('addex-md-model', 'addex-md-ollama-wrap', 'addex-md-apikey-wrap'); }
 
 function onAddExamFile(input) {
   const f = input.files[0];
@@ -2720,19 +2719,7 @@ async function confirmAddExam() {
   // Persister dans IndexedDB
   await idbSet(dbKey, dbData);
 
-  // Résoudre le domaine
-  let domainId = document.getElementById('addex-domain')?.value || null;
-  if (domainId === '__new__') {
-    const newName = document.getElementById('addex-new-domain-name')?.value.trim();
-    if (newName) {
-      const newDomain = { id: 'domain_' + Date.now(), name: newName, sub: '', isCustom: true, examIds: [] };
-      CUSTOM_DOMAINS.push(newDomain);
-      _saveCustomDomains();
-      domainId = newDomain.id;
-    } else {
-      domainId = null;
-    }
-  }
+  const domainId = _resolveDomainSelection();
 
   // Ajouter à QUESTIONNAIRES
   const quiz = {
@@ -2844,9 +2831,7 @@ function _createEmptyQuestionsDB() {
   return db;
 }
 
-async function _saveGeneratedQuiz(dbData, {title, subtitle, description, perExam, timeMin, passT}) {
-  const id = 'custom_' + Date.now(), dbKey = id + '_db';
-  await idbSet(dbKey, dbData);
+function _resolveDomainSelection() {
   let domainId = document.getElementById('addex-domain')?.value || null;
   if (domainId === '__new__') {
     const newName = document.getElementById('addex-new-domain-name')?.value.trim();
@@ -2855,6 +2840,13 @@ async function _saveGeneratedQuiz(dbData, {title, subtitle, description, perExam
       CUSTOM_DOMAINS.push(nd); _saveCustomDomains(); domainId = nd.id;
     } else { domainId = null; }
   }
+  return domainId;
+}
+
+async function _saveGeneratedQuiz(dbData, {title, subtitle, description, perExam, timeMin, passT}) {
+  const id = 'custom_' + Date.now(), dbKey = id + '_db';
+  await idbSet(dbKey, dbData);
+  const domainId = _resolveDomainSelection();
   QUESTIONNAIRES.push({
     id, title, subtitle: subtitle || title, description,
     dbKey, version: 1, perExam, timeMin, passThreshold: passT,
@@ -3009,7 +3001,7 @@ async function _generateFromMarkdown(title, subtitle, perExam, timeMin, passT) {
   if (!location.protocol.startsWith('http')) {
     showAddExamError('Cette fonctionnalité nécessite le mode HTTP. Lancez : python bin/serve.py'); return;
   }
-  const text = _addexMdContent || document.getElementById('addex-md-text')?.value.trim();
+  const text = document.getElementById('addex-md-text')?.value.trim();
   if (!text) { showAddExamError('Importez un fichier .md ou collez du contenu Markdown.'); return; }
 
   const qpc        = parseInt(document.getElementById('addex-md-qpc').value) || 5;
@@ -3076,25 +3068,18 @@ async function _generateFromMarkdown(title, subtitle, perExam, timeMin, passT) {
 
 function onAddExamMdFile(input) {
   const f = input.files[0];
-  if (!f) { _addexMdContent = null; return; }
+  if (!f) return;
   const reader = new FileReader();
   reader.onload = function(ev) {
-    _addexMdContent = ev.target.result;
-    const words = _addexMdContent.trim().split(/\s+/).length;
+    const content = ev.target.result;
+    const ta = document.getElementById('addex-md-text');
+    if (ta) ta.value = content;
+    const words = content.trim().split(/\s+/).length;
     const txt = document.getElementById('addex-md-upload-txt');
     if (txt) txt.innerHTML = '<span class="addex-upload-name">✓ '+f.name+'</span><br>' +
       '<small style="opacity:.6">'+Math.round(f.size/1024)+' KB · '+words+' mots</small>';
   };
   reader.readAsText(f, 'utf-8');
-}
-
-function onAddExamMdModelChange() {
-  const model      = document.getElementById('addex-md-model')?.value;
-  const isOllama   = model === 'ollama';
-  const ollamaWrap = document.getElementById('addex-md-ollama-wrap');
-  const apikeyWrap = document.getElementById('addex-md-apikey-wrap');
-  if (ollamaWrap) ollamaWrap.style.display = isOllama ? '' : 'none';
-  if (apikeyWrap) apikeyWrap.style.display = (isOllama || !!sessionStorage.getItem('_ak')) ? 'none' : '';
 }
 
 // ── Domains ───────────────────────────────────────────────────────────────────
@@ -3104,14 +3089,18 @@ const BUILTIN_DOMAINS = [
     name: 'Certifications Microsoft',
     sub: 'Azure AI · Database · Infrastructure',
     accentClass: 'microsoft',
-    examIds: ['ai900','dp300','az104','dp700']
+    examIds: ['ai900','dp300','az104','dp700'],
+    accentStyle: 'background:linear-gradient(90deg,#f25022 25%,#7fba00 25%,#7fba00 50%,#00a4ef 50%,#00a4ef 75%,#ffb900 75%)',
+    logoHtml: `<div class="org-logo"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 23 23" width="52" height="52"><rect x="1" y="1" width="10" height="10" fill="#F25022"/><rect x="12" y="1" width="10" height="10" fill="#7FBA00"/><rect x="1" y="12" width="10" height="10" fill="#00A4EF"/><rect x="12" y="12" width="10" height="10" fill="#FFB900"/></svg></div>`
   },
   {
     id: 'dama',
     name: 'Certifications CDMP',
     sub: 'Data Management Body of Knowledge',
     accentClass: 'dama',
-    examIds: ['cdmp']
+    examIds: ['cdmp'],
+    accentStyle: 'background:linear-gradient(90deg,#e65100,#ff8f00)',
+    logoHtml: `<div class="org-logo"><img src="https://www.dama.org/sites/default/files/inline-images/DAMA-logo.png" alt="DAMA" onerror="this.style.display='none';this.nextElementSibling.style.display='block'"><span style="display:none;font-family:var(--font-display);font-size:2.6rem;font-weight:800;color:#e65100;letter-spacing:-.03em">DAMA</span></div>`
   }
 ];
 
@@ -3137,43 +3126,17 @@ function _renderOrgScreen() {
   const container = document.getElementById('org-cards-container');
   if (!container) return;
   const domains = _allDomains();
+  const qMap = new Map(QUESTIONNAIRES.map(q => [q.id, q.title]));
   const cards = domains.map(d => {
     const isCustom = !!d.isCustom;
     const delBtn = isCustom
       ? `<button class="org-del" onclick="event.stopPropagation();deleteCustomDomain('${d.id}')">✕</button>`
       : '';
 
-    let accentStyle = '';
-    if (d.accentClass === 'microsoft') {
-      accentStyle = 'background:linear-gradient(90deg,#f25022 25%,#7fba00 25%,#7fba00 50%,#00a4ef 50%,#00a4ef 75%,#ffb900 75%)';
-    } else if (d.accentClass === 'dama') {
-      accentStyle = 'background:linear-gradient(90deg,#e65100,#ff8f00)';
-    } else {
-      accentStyle = 'background:linear-gradient(90deg,var(--gold),rgba(212,168,83,.4))';
-    }
+    const accentStyle = d.accentStyle || 'background:linear-gradient(90deg,var(--gold),rgba(212,168,83,.4))';
+    const logoHtml    = d.logoHtml    || `<div class="org-logo"><span style="font-size:2.2rem">📚</span></div>`;
 
-    let logoHtml = '';
-    if (d.id === 'microsoft') {
-      logoHtml = `<div class="org-logo"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 23 23" width="52" height="52">
-        <rect x="1" y="1" width="10" height="10" fill="#F25022"/>
-        <rect x="12" y="1" width="10" height="10" fill="#7FBA00"/>
-        <rect x="1" y="12" width="10" height="10" fill="#00A4EF"/>
-        <rect x="12" y="12" width="10" height="10" fill="#FFB900"/>
-      </svg></div>`;
-    } else if (d.id === 'dama') {
-      logoHtml = `<div class="org-logo">
-        <img src="https://www.dama.org/sites/default/files/inline-images/DAMA-logo.png" alt="DAMA"
-             onerror="this.style.display='none';this.nextElementSibling.style.display='block'">
-        <span style="display:none;font-family:var(--font-display);font-size:2.6rem;font-weight:800;color:#e65100;letter-spacing:-.03em">DAMA</span>
-      </div>`;
-    } else {
-      logoHtml = `<div class="org-logo"><span style="font-size:2.2rem">📚</span></div>`;
-    }
-
-    // Compute tags from current QUESTIONNAIRES for live count accuracy
-    const examTitles = (d.examIds || [])
-      .map(eid => { const q = QUESTIONNAIRES.find(x => x.id === eid); return q ? q.title : null; })
-      .filter(Boolean);
+    const examTitles = (d.examIds || []).map(eid => qMap.get(eid)).filter(Boolean);
     const tags = examTitles.map(t => `<span class="org-tag">${t}</span>`).join('');
 
     return `<div class="org-card ${d.accentClass || 'custom-domain'}${isCustom ? ' custom-domain' : ''}" onclick="showOrgPicker('${d.id}')">
