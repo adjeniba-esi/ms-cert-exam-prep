@@ -104,6 +104,68 @@ def _admin_list_exams():
     return exams
 
 
+def _admin_apply_updates(exam, updated, new_questions):
+    path = f'data/content/{exam}.sqlite'
+    if not os.path.exists(path):
+        return 400, {'error': 'Examen introuvable'}
+    try:
+        conn = _sqlite3.connect(path)
+        cols = _db_cols(conn)
+
+        updated_count = 0
+        for q in updated:
+            qid = q.get('id')
+            if not isinstance(qid, (int, float)) or int(qid) <= 0:
+                continue
+            fields = {k: v for k, v in q.items() if k in ADMIN_FIELDS}
+            if not fields:
+                continue
+            sets = ', '.join(f'{k}=?' for k in fields)
+            conn.execute(f'UPDATE questions SET {sets} WHERE id=?',
+                         list(fields.values()) + [int(qid)])
+            updated_count += 1
+
+        new_count = 0
+        for q in new_questions:
+            question_text = str(q.get('question', '') or '').strip()
+            if not question_text:
+                continue
+            row = {
+                'domain':      str(q.get('domain',      '') or 'General'),
+                'question':    question_text,
+                'opt_a':       str(q.get('opt_a',       '') or ''),
+                'opt_b':       str(q.get('opt_b',       '') or ''),
+                'opt_c':       str(q.get('opt_c',       '') or ''),
+                'opt_d':       str(q.get('opt_d',       '') or ''),
+                'correct_idx': str(q.get('correct_idx', '0')),
+                'explanation': str(q.get('explanation', '') or ''),
+            }
+            if 'opt_e' in cols:
+                row['opt_e'] = str(q.get('opt_e', '') or '')
+                row['opt_f'] = str(q.get('opt_f', '') or '')
+            if 'is_multi' in cols:
+                row['is_multi']     = 1 if q.get('is_multi') else 0
+                row['select_count'] = int(q.get('select_count') or 1)
+            cols_str = ', '.join(row.keys())
+            ph       = ', '.join('?' * len(row))
+            try:
+                conn.execute(f'INSERT INTO questions ({cols_str}) VALUES ({ph})',
+                             list(row.values()))
+                new_count += 1
+            except _sqlite3.IntegrityError:
+                pass  # question déjà présente (index unique)
+
+        conn.commit()
+        total = conn.execute('SELECT COUNT(*) FROM questions').fetchone()[0]
+        conn.execute("INSERT OR REPLACE INTO meta VALUES ('question_count',?)", [str(total)])
+        conn.commit()
+        conn.close()
+        _bump_exam_version(exam)
+        return 200, {'ok': True, 'updated': updated_count, 'new': new_count, 'total': total}
+    except Exception as e:
+        return 500, {'error': str(e)}
+
+
 def _admin_upload_exam(body):
     exam_id = str(body.get('id', '')).strip().lower()
     title   = str(body.get('title', '')).strip() or exam_id
@@ -342,6 +404,15 @@ class ProxyHandler(http.server.SimpleHTTPRequestHandler):
 
         if self.path == '/api/admin/upload-exam':
             status, result = _admin_upload_exam(body)
+            self._json_response(status, result); return
+
+        if self.path == '/api/admin/apply-updates':
+            exam     = str(body.get('exam', ''))
+            updated  = body.get('updated', [])
+            new_qs   = body.get('new', [])
+            if not exam:
+                self._json_response(400, {'error': 'exam requis'}); return
+            status, result = _admin_apply_updates(exam, updated, new_qs)
             self._json_response(status, result); return
 
         self.send_error(404, 'Not found')

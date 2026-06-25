@@ -97,6 +97,24 @@ tr:hover td{background:var(--surface)}
 .pwd-panel input:focus{border-color:var(--gold)}
 .pwd-msg{font-size:13px;min-height:18px}
 
+/* ── Update exam modal ── */
+#upd-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:300;overflow-y:auto;padding:32px 16px}
+#upd-overlay.open{display:flex;align-items:flex-start;justify-content:center}
+.upd-panel{background:var(--surface);border:.5px solid var(--border2);border-radius:12px;padding:24px;width:100%;max-width:660px;display:flex;flex-direction:column;gap:14px;margin:auto}
+.upd-row3{display:flex;gap:10px;flex-wrap:wrap}
+.upd-row3>div{flex:1;min-width:130px}
+.upd-progress{background:var(--bg);border:.5px solid var(--border);border-radius:6px;padding:10px 14px;font-family:var(--font-mono);font-size:11px;line-height:1.8;max-height:200px;overflow-y:auto;display:none}
+.upd-line{display:block;color:var(--text-muted)}
+.upd-line.ok{color:var(--green)}
+.upd-line.err{color:var(--red)}
+.upd-line.cur{color:var(--gold)}
+.upd-panel input[type=url],.upd-panel input[type=text],.upd-panel input[type=password],
+.upd-panel input[type=number],.upd-panel textarea,.upd-panel select{
+  width:100%;padding:8px 12px;background:var(--bg);border:.5px solid var(--border2);
+  border-radius:6px;color:var(--text);font-size:13px;outline:none;font-family:inherit;transition:border-color .15s}
+.upd-panel input:focus,.upd-panel textarea:focus,.upd-panel select:focus{border-color:var(--gold)}
+.upd-panel textarea{resize:vertical;min-height:100px;line-height:1.5}
+
 /* ── Import modal ── */
 .imp-tabs{display:flex;gap:0;border-bottom:.5px solid var(--border2);margin-bottom:12px}
 .imp-tab{padding:7px 14px;font-size:12px;font-family:var(--font-mono);cursor:pointer;color:var(--text-dim);border-bottom:2px solid transparent;transition:color .15s,border-color .15s}
@@ -148,6 +166,9 @@ tr:hover td{background:var(--surface)}
     <input type="text" id="q-search" placeholder="🔍 Rechercher dans les questions…"
            oninput="searchDebounce()">
     <button class="btn" onclick="openImportModal()">↑ Importer</button>
+    <button class="btn" id="update-btn" style="display:none" onclick="openUpdateModal()">
+      🔄 Mettre à jour
+    </button>
     <button class="btn" id="export-btn" style="display:none" onclick="exportSqlite()">
       ⬇ Exporter SQLite
     </button>
@@ -215,6 +236,89 @@ tr:hover td{background:var(--surface)}
     <div class="edit-actions">
       <button class="btn ghost" onclick="closeEdit()">Annuler</button>
       <button class="btn primary" onclick="saveQuestion()">Sauvegarder</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ Update Exam Modal ═════════════════════════════════════ -->
+<div id="upd-overlay">
+  <div class="upd-panel">
+    <h3>🔄 Mettre à jour — <span id="upd-exam-label" style="color:var(--gold);font-family:var(--font-mono)"></span></h3>
+
+    <!-- Source tabs -->
+    <div class="imp-tabs">
+      <span class="imp-tab active" data-tab="yt" onclick="setUpdTab('yt')">▶ YouTube</span>
+      <span class="imp-tab" data-tab="md" onclick="setUpdTab('md')">📄 Markdown</span>
+    </div>
+
+    <!-- YouTube tab -->
+    <div class="imp-tab-content active" id="upd-tab-yt">
+      <span class="field-label">URL YouTube (vidéo ou playlist)</span>
+      <input type="url" id="upd-yt-url" placeholder="https://youtube.com/watch?v=…">
+    </div>
+
+    <!-- Markdown tab -->
+    <div class="imp-tab-content" id="upd-tab-md">
+      <span class="field-label">Contenu Markdown / texte</span>
+      <label style="display:block;margin-bottom:6px;padding:7px 12px;background:var(--bg);border:.5px dashed var(--border2);border-radius:6px;cursor:pointer;font-size:12px;color:var(--text-dim);text-align:center">
+        <span id="upd-md-file-label">Cliquer pour choisir un fichier .md</span>
+        <input type="file" accept=".md,.txt" style="display:none" onchange="onUpdMdFile(this)">
+      </label>
+      <textarea id="upd-md-text" placeholder="Ou coller le contenu Markdown / texte ici…"></textarea>
+    </div>
+
+    <!-- Common controls -->
+    <div class="upd-row3">
+      <div>
+        <span class="field-label">Langue du contenu</span>
+        <select id="upd-lang">
+          <option value="fr">fr — Français</option>
+          <option value="en">en — English</option>
+          <option value="es">es — Español</option>
+          <option value="de">de — Deutsch</option>
+        </select>
+      </div>
+      <div>
+        <span class="field-label">Questions / segment</span>
+        <input type="number" id="upd-qpc" value="5" min="1" max="15">
+      </div>
+      <div>
+        <span class="field-label">Modèle</span>
+        <select id="upd-model" onchange="onUpdModelChange()">
+          <option value="claude-haiku-4-5-20251001">Haiku — rapide</option>
+          <option value="claude-sonnet-4-6">Sonnet — qualité</option>
+          <option value="ollama">Ollama (local)</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Ollama fields -->
+    <div id="upd-ollama-wrap" style="display:none">
+      <div class="upd-row3">
+        <div style="flex:2">
+          <span class="field-label">URL Ollama</span>
+          <input type="text" id="upd-ollama-url" value="http://localhost:11434">
+        </div>
+        <div style="flex:1">
+          <span class="field-label">Modèle Ollama</span>
+          <input type="text" id="upd-ollama-model" value="llama3.2">
+        </div>
+      </div>
+    </div>
+
+    <!-- API key -->
+    <div id="upd-apikey-wrap">
+      <span class="field-label">Clé API Anthropic</span>
+      <input type="password" id="upd-apikey" placeholder="sk-ant-…">
+    </div>
+
+    <!-- Progress log -->
+    <div class="upd-progress" id="upd-progress"></div>
+
+    <div class="pwd-msg" id="upd-msg"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn ghost" onclick="closeUpdateModal()">Annuler</button>
+      <button class="btn primary" id="upd-run-btn" onclick="doUpdateExam()">🔄 Mettre à jour</button>
     </div>
   </div>
 </div>
@@ -398,6 +502,7 @@ async function loadQuestions(page) {
   _curExam = exam;
 
   document.getElementById('export-btn').style.display = exam ? '' : 'none';
+  document.getElementById('update-btn').style.display = exam ? '' : 'none';
 
   if (!exam) {
     document.getElementById('q-tbody').innerHTML =
@@ -645,6 +750,323 @@ async function doChangePwd() {
     setTimeout(() => document.getElementById('pwd-overlay').classList.remove('open'), 1000);
   } catch(e) {
     msg.style.color = 'var(--red)'; msg.textContent = '✗ ' + e.message;
+  }
+}
+
+// ── Update exam ───────────────────────────────────────────────
+const _QUP_SYSTEM =
+`Tu es un expert en conception et maintenance de questionnaires de certification professionnelle.
+
+On te fournit :
+1. La liste des questions existantes (id | domaine | énoncé) — contexte de l'examen en cours
+2. Un extrait de contenu source (transcript ou documentation)
+3. Le nombre cible de nouvelles questions à générer pour cet extrait
+
+Tes deux missions :
+──────────────────────────────────────────────────────────────
+A) MISE À JOUR des questions existantes
+   Si l'extrait contient une information qui contredit, précise ou améliore une question
+   existante, fournis la version corrigée avec son id.
+   Ne modifie PAS une question si le contenu ne l'invalide pas directement.
+
+B) ENRICHISSEMENT avec de nouvelles questions
+   Génère exactement N nouvelles questions sur des sujets du contenu NON encore couverts
+   par les questions existantes.
+──────────────────────────────────────────────────────────────
+
+RÈGLES SUR LES PERTURBATEURS (mauvaises réponses) — PRIORITÉ ABSOLUE :
+▸ Chaque perturbateur doit faire hésiter quelqu'un qui connaît mal le sujet — jamais absurde
+▸ Même catégorie que la bonne réponse : si la réponse est un pourcentage, les autres aussi
+▸ Représenter des erreurs réelles et documentées dans le domaine :
+   · confusion terminologique (ex : "gouvernance" vs "gestion des données")
+   · inversion de priorité ou d'ordre (ex : étape 2 présentée comme étape 1)
+   · valeur seuil décalée de façon crédible (ex : 60 % au lieu de 70 %)
+   · généralisation excessive ou trop restrictive d'un principe
+   · amalgame entre deux concepts proches mais distincts
+▸ Longueur, style et registre identiques à la bonne réponse
+▸ Ne jamais utiliser "Aucune de ces réponses" ni "Toutes les réponses ci-dessus"
+▸ Si le domaine a des erreurs classiques connues (faux amis, confusions fréquentes),
+   les utiliser comme perturbateurs — ce sont les plus efficaces pédagogiquement
+
+correct_idx : index 0-based de la bonne réponse (opt_a=0, opt_b=1, opt_c=2, opt_d=3)
+Explication : justifier la bonne réponse ET clarifier pourquoi chaque perturbateur est incorrect
+
+Réponds UNIQUEMENT avec l'objet JSON suivant, sans texte avant ni après :
+{
+  "updated": [
+    {"id": <int>, "domain": "...", "question": "...",
+     "opt_a": "...", "opt_b": "...", "opt_c": "...", "opt_d": "...",
+     "correct_idx": "0", "explanation": "..."}
+  ],
+  "new": [
+    {"domain": "...", "question": "...",
+     "opt_a": "...", "opt_b": "...", "opt_c": "...", "opt_d": "...",
+     "correct_idx": "0", "explanation": "..."}
+  ]
+}
+Si aucune mise à jour ni ajout n'est pertinent pour ce passage : {"updated": [], "new": []}`;
+
+function _chunkTextAdmin(text, maxWords) {
+  maxWords = maxWords || 1500;
+  const paras = text.split(/\n{2,}/).map(p => p.trim()).filter(Boolean);
+  const chunks = [], cur = [];
+  let count = 0;
+  paras.forEach(p => {
+    const w = p.split(/\s+/).length;
+    if (count + w > maxWords && cur.length) { chunks.push(cur.join('\n\n')); cur.length = 0; count = 0; }
+    cur.push(p); count += w;
+  });
+  if (cur.length) chunks.push(cur.join('\n\n'));
+  return chunks;
+}
+
+function _buildExistingCtx(questions) {
+  const MAX = 200;
+  const list = questions.slice(0, MAX);
+  const lines = list.map(q => {
+    const qText = (q.question || '').replace(/\n/g, ' ').slice(0, 120);
+    return `${q.id} | ${q.domain || '—'} | ${qText}`;
+  });
+  const header = `QUESTIONS EXISTANTES (${questions.length} au total${questions.length > MAX ? `, ${MAX} affichées` : ''}) :\n`;
+  return header + lines.join('\n');
+}
+
+async function _callUpdModel(apiKey, chunk, existingCtx, nQ, model, ollamaUrl, ollamaModel) {
+  const userMsg = existingCtx + '\n\nCONTENU SOURCE :\n' + chunk +
+    `\n\nGénère exactement ${nQ} nouvelles questions sur les aspects du contenu NON encore couverts ci-dessus.`;
+  let endpoint, body, headers;
+  if (model === 'ollama') {
+    endpoint = _API_BASE + '/api/ollama';
+    body     = JSON.stringify({ollama_url: ollamaUrl, model: ollamaModel,
+                               system: _QUP_SYSTEM, messages: [{role:'user', content: userMsg}]});
+    headers  = {'Content-Type': 'application/json'};
+  } else {
+    endpoint = _API_BASE + '/api/translate';
+    body     = JSON.stringify({model, max_tokens: 8192, system: _QUP_SYSTEM,
+                               messages: [{role:'user', content: userMsg}]});
+    headers  = {'Content-Type':'application/json', 'X-Api-Key': apiKey, 'anthropic-version':'2023-06-01'};
+  }
+  const resp = await fetch(endpoint, {method:'POST', headers, body});
+  if (!resp.ok) {
+    const e = await resp.json().catch(() => ({}));
+    throw new Error('API ' + resp.status + ' : ' + ((e.error && e.error.message) || JSON.stringify(e.error) || 'Erreur'));
+  }
+  const data = await resp.json();
+  const text = model === 'ollama'
+    ? (data.message?.content || data.choices?.[0]?.message?.content || '')
+    : data.content[0].text;
+  // Extract JSON object from response
+  const m = text.match(/\{[\s\S]*\}/);
+  if (!m) throw new Error('Pas de JSON dans la réponse');
+  const result = JSON.parse(m[0]);
+  return {
+    updated: Array.isArray(result.updated) ? result.updated : [],
+    new:     Array.isArray(result.new)     ? result.new     : []
+  };
+}
+
+function _updLog(msg, cls, clear) {
+  const el = document.getElementById('upd-progress');
+  if (clear) { el.innerHTML = ''; }
+  el.style.display = '';
+  const line = document.createElement('span');
+  line.className = 'upd-line' + (cls ? ' ' + cls : '');
+  line.textContent = msg;
+  el.appendChild(line);
+  el.scrollTop = el.scrollHeight;
+  return line;
+}
+
+function openUpdateModal() {
+  if (!_curExam) return;
+  document.getElementById('upd-exam-label').textContent = _curExam.toUpperCase();
+  document.getElementById('upd-yt-url').value    = '';
+  document.getElementById('upd-md-text').value   = '';
+  document.getElementById('upd-md-file-label').textContent = 'Cliquer pour choisir un fichier .md';
+  document.getElementById('upd-progress').style.display = 'none';
+  document.getElementById('upd-progress').innerHTML = '';
+  document.getElementById('upd-msg').textContent = '';
+  document.getElementById('upd-run-btn').disabled = false;
+  document.getElementById('upd-run-btn').textContent = '🔄 Mettre à jour';
+  // Pre-fill API key from session
+  const saved = sessionStorage.getItem('_ak');
+  const keyEl = document.getElementById('upd-apikey');
+  if (saved) keyEl.value = saved;
+  onUpdModelChange();
+  setUpdTab('yt');
+  document.getElementById('upd-overlay').classList.add('open');
+}
+
+function closeUpdateModal() {
+  document.getElementById('upd-overlay').classList.remove('open');
+}
+
+function setUpdTab(tab) {
+  document.querySelectorAll('#upd-overlay .imp-tab').forEach(el =>
+    el.classList.toggle('active', el.dataset.tab === tab));
+  document.getElementById('upd-tab-yt').classList.toggle('active', tab === 'yt');
+  document.getElementById('upd-tab-md').classList.toggle('active', tab === 'md');
+}
+
+function onUpdModelChange() {
+  const model = document.getElementById('upd-model').value;
+  const isOllama = model === 'ollama';
+  document.getElementById('upd-ollama-wrap').style.display = isOllama ? '' : 'none';
+  document.getElementById('upd-apikey-wrap').style.display =
+    (isOllama || !!sessionStorage.getItem('_ak')) ? 'none' : '';
+}
+
+function onUpdMdFile(input) {
+  const f = input.files[0];
+  if (!f) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    document.getElementById('upd-md-text').value = e.target.result;
+    document.getElementById('upd-md-file-label').textContent =
+      f.name + ' (' + Math.round(f.size / 1024) + ' KB)';
+  };
+  reader.readAsText(f, 'utf-8');
+}
+
+async function doUpdateExam() {
+  const exam  = _curExam;
+  if (!exam) return;
+
+  const activeTab  = document.querySelector('#upd-overlay .imp-tab.active')?.dataset.tab;
+  const model      = document.getElementById('upd-model').value;
+  const isOllama   = model === 'ollama';
+  const ollamaUrl  = (document.getElementById('upd-ollama-url').value  || 'http://localhost:11434').trim();
+  const ollamaModel= (document.getElementById('upd-ollama-model').value || 'llama3.2').trim();
+  const nQ         = parseInt(document.getElementById('upd-qpc').value) || 5;
+
+  let apiKey = sessionStorage.getItem('_ak') || '';
+  const keyEl = document.getElementById('upd-apikey');
+  if (keyEl.value.trim()) apiKey = keyEl.value.trim();
+  if (!isOllama && !apiKey) {
+    document.getElementById('upd-msg').style.color = 'var(--red)';
+    document.getElementById('upd-msg').textContent = 'Clé API Anthropic requise.';
+    return;
+  }
+  document.getElementById('upd-msg').textContent = '';
+
+  const btn = document.getElementById('upd-run-btn');
+  btn.disabled = true; btn.textContent = '⏳ En cours…';
+
+  // ── Étape 1 : récupérer les questions existantes ──
+  _updLog('Chargement des questions existantes…', 'cur', true);
+  let existingQs = [];
+  try {
+    const r = await apiFetch(`/api/admin/questions?exam=${encodeURIComponent(exam)}&per_page=500&page=1`);
+    if (!r.ok) throw new Error('Erreur ' + r.status);
+    const d = await r.json();
+    existingQs = d.questions || [];
+    _updLog(`${existingQs.length} question(s) existante(s) chargées.`, 'ok');
+  } catch(e) {
+    _updLog('Erreur chargement questions : ' + e.message, 'err');
+    btn.disabled = false; btn.textContent = '🔄 Mettre à jour'; return;
+  }
+  const existingCtx = _buildExistingCtx(existingQs);
+
+  // ── Étape 2 : valider la clé API ──
+  if (!isOllama) {
+    const kLine = _updLog('Vérification de la clé API…', 'cur');
+    try {
+      const vr = await fetch(_API_BASE + '/api/translate', {
+        method:'POST',
+        headers:{'Content-Type':'application/json','X-Api-Key':apiKey,'anthropic-version':'2023-06-01'},
+        body: JSON.stringify({model, max_tokens:1, messages:[{role:'user',content:'test'}]})
+      });
+      if (vr.status === 401) {
+        sessionStorage.removeItem('_ak');
+        kLine.textContent = 'Clé API invalide (401).'; kLine.className = 'upd-line err';
+        btn.disabled = false; btn.textContent = '🔄 Mettre à jour'; return;
+      }
+      sessionStorage.setItem('_ak', apiKey);
+      kLine.textContent = 'Clé API validée ✓'; kLine.className = 'upd-line ok';
+    } catch(e) {
+      kLine.textContent = 'Vérification impossible : ' + e.message; kLine.className = 'upd-line err';
+    }
+  }
+
+  // ── Étape 3 : récupérer le contenu ──
+  let sources = []; // [{title, text}]
+  if (activeTab === 'yt') {
+    const ytUrl = document.getElementById('upd-yt-url').value.trim();
+    if (!ytUrl) {
+      _updLog('URL YouTube requise.', 'err');
+      btn.disabled = false; btn.textContent = '🔄 Mettre à jour'; return;
+    }
+    const lang = document.getElementById('upd-lang').value;
+    const tLine = _updLog('Téléchargement des sous-titres…', 'cur');
+    try {
+      const tr = await fetch(_API_BASE + '/api/transcript', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({url: ytUrl, lang})
+      });
+      if (!tr.ok) { const e = await tr.json().catch(()=>({})); throw new Error(e.error || 'Erreur ' + tr.status); }
+      const {transcripts} = await tr.json();
+      sources = transcripts;
+      tLine.textContent = `${transcripts.length} vidéo(s) — sous-titres récupérés.`;
+      tLine.className = 'upd-line ok';
+    } catch(e) {
+      tLine.textContent = 'Erreur sous-titres : ' + e.message; tLine.className = 'upd-line err';
+      btn.disabled = false; btn.textContent = '🔄 Mettre à jour'; return;
+    }
+  } else {
+    const mdText = document.getElementById('upd-md-text').value.trim();
+    if (!mdText) {
+      _updLog('Importez un fichier ou collez du contenu.', 'err');
+      btn.disabled = false; btn.textContent = '🔄 Mettre à jour'; return;
+    }
+    sources = [{title: 'Document', text: mdText}];
+    _updLog('Document prêt (' + mdText.split(/\s+/).length + ' mots).', 'ok');
+  }
+
+  // ── Étape 4 : générer les mises à jour chunk par chunk ──
+  const updatedMap = new Map(); // id → question object (last wins)
+  const newList    = [];
+
+  for (const src of sources) {
+    _updLog('▶ ' + src.title);
+    const chunks = _chunkTextAdmin(src.text, 1500);
+    for (let ci = 0; ci < chunks.length; ci++) {
+      const segLine = _updLog(`  Segment ${ci+1}/${chunks.length}…`, 'cur');
+      try {
+        const result = await _callUpdModel(apiKey, chunks[ci], existingCtx, nQ,
+                                           model, ollamaUrl, ollamaModel);
+        result.updated.forEach(q => { if (q.id) updatedMap.set(Number(q.id), q); });
+        newList.push(...result.new);
+        segLine.textContent = `  Segment ${ci+1}/${chunks.length} → ${result.updated.length} modif., ${result.new.length} nouvelle(s)`;
+        segLine.className = 'upd-line ok';
+      } catch(e) {
+        segLine.textContent = `  Segment ${ci+1} — ERREUR : ${e.message}`;
+        segLine.className = 'upd-line err';
+        if (e.message.includes('401')) { sessionStorage.removeItem('_ak'); break; }
+      }
+    }
+  }
+
+  // ── Étape 5 : appliquer les changements ──
+  const applyLine = _updLog('Application des changements…', 'cur');
+  try {
+    const r = await apiFetch('/api/admin/apply-updates', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({exam, updated: [...updatedMap.values()], new: newList})
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || 'Erreur ' + r.status);
+    applyLine.textContent =
+      `✓ ${d.updated} question(s) mise(s) à jour, ${d.new} question(s) ajoutée(s). Total : ${d.total} questions.`;
+    applyLine.className = 'upd-line ok';
+    setTimeout(() => {
+      closeUpdateModal();
+      loadQuestions(_curPage);
+    }, 2000);
+  } catch(e) {
+    applyLine.textContent = '✗ Erreur application : ' + e.message;
+    applyLine.className = 'upd-line err';
+    btn.disabled = false; btn.textContent = '🔄 Mettre à jour';
   }
 }
 
