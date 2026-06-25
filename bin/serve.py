@@ -84,6 +84,20 @@ def _admin_list_exams():
     return exams
 
 
+def _db_cols(conn):
+    """Return set of column names for the questions table."""
+    rows = conn.execute("PRAGMA table_info(questions)").fetchall()
+    return {r[1] for r in rows}
+
+
+def _q_select(cols):
+    """Build SELECT columns list adapted to the actual schema."""
+    base = 'id,domain,question,opt_a,opt_b,opt_c,opt_d'
+    ext  = ',COALESCE(opt_e,"") AS opt_e,COALESCE(opt_f,"") AS opt_f' if 'opt_e' in cols else ',"" AS opt_e,"" AS opt_f'
+    multi = ',is_multi,select_count' if 'is_multi' in cols else ',0 AS is_multi,1 AS select_count'
+    return base + ext + ',correct_idx,explanation' + multi
+
+
 def _admin_get_questions(exam, search='', page=1, per_page=50):
     path = f'data/content/{exam}.sqlite'
     if not os.path.exists(path):
@@ -91,6 +105,7 @@ def _admin_get_questions(exam, search='', page=1, per_page=50):
     try:
         conn = _sqlite3.connect(path)
         conn.row_factory = _sqlite3.Row
+        cols = _db_cols(conn)
         where, params = '', []
         if search:
             where  = 'WHERE (question LIKE ? OR domain LIKE ?)'
@@ -98,10 +113,7 @@ def _admin_get_questions(exam, search='', page=1, per_page=50):
         total  = conn.execute(f'SELECT COUNT(*) FROM questions {where}', params).fetchone()[0]
         offset = (page - 1) * per_page
         rows   = conn.execute(
-            f'SELECT id,domain,question,opt_a,opt_b,opt_c,opt_d,'
-            f'COALESCE(opt_e,"") AS opt_e,COALESCE(opt_f,"") AS opt_f,'
-            f'correct_idx,explanation,is_multi,select_count FROM questions {where}'
-            f' ORDER BY id LIMIT ? OFFSET ?',
+            f'SELECT {_q_select(cols)} FROM questions {where} ORDER BY id LIMIT ? OFFSET ?',
             params + [per_page, offset]).fetchall()
         conn.close()
         return {'total': total, 'page': page, 'per_page': per_page,
@@ -117,11 +129,9 @@ def _admin_get_question(exam, qid):
     try:
         conn = _sqlite3.connect(path)
         conn.row_factory = _sqlite3.Row
-        row = conn.execute(
-            'SELECT id,domain,question,opt_a,opt_b,opt_c,opt_d,'
-            'COALESCE(opt_e,"") AS opt_e,COALESCE(opt_f,"") AS opt_f,'
-            'correct_idx,explanation,is_multi,select_count FROM questions WHERE id=?',
-            [qid]).fetchone()
+        cols = _db_cols(conn)
+        row  = conn.execute(
+            f'SELECT {_q_select(cols)} FROM questions WHERE id=?', [qid]).fetchone()
         conn.close()
         if not row:
             return None, 'Question introuvable'
