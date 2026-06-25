@@ -88,6 +88,9 @@ ansible-playbook deploy-k8s.yml -e ingress_domain=votre-domaine.com
 │   ├── transcript2questions.py    Génère des QCM depuis des transcripts via Claude
 │   └── requirements.txt           Dépendances Python (yt-dlp)
 │
+├── js/
+│   └── provider-meta.js           Helper _providerMeta() partagé (Anthropic/OpenAI/Mistral/Ollama)
+│
 ├── exams/                         Définitions des examens
 │   ├── index.json                 Liste des identifiants d'examens disponibles
 │   ├── index.js                   Même contenu, chargeable sans serveur (file://)
@@ -160,7 +163,7 @@ start Exam-Prep.html         # Windows
 
 ### Mode serveur HTTP local
 
-Toutes les fonctionnalités sont disponibles : traduction Claude, génération YouTube, Ollama.
+Toutes les fonctionnalités sont disponibles : traduction Claude, génération YouTube, OpenAI, Mistral, Ollama.
 
 ```bash
 python3 bin/serve.py                       # localhost:8080
@@ -341,9 +344,16 @@ Endpoints publics :
 | Méthode | Chemin | Description |
 |---------|--------|-------------|
 | GET | `/*` | Fichiers statiques depuis la racine du projet |
-| POST | `/api/translate` | Proxy vers `api.anthropic.com/v1/messages` |
+| POST | `/api/translate` | Proxy vers `api.anthropic.com/v1/messages` (Anthropic) |
+| POST | `/api/openai` | Proxy vers `api.openai.com/v1/chat/completions` (OpenAI) |
+| POST | `/api/mistral` | Proxy vers `api.mistral.ai/v1/chat/completions` (Mistral) |
 | POST | `/api/transcript` | Extraction de sous-titres YouTube via yt-dlp |
 | POST | `/api/ollama` | Proxy vers une instance Ollama locale |
+
+Les trois proxies IA (`/api/translate`, `/api/openai`, `/api/mistral`) reçoivent le
+corps en format Anthropic-like `{model, max_tokens, system, messages}` et normalisent
+la réponse vers `{content:[{text:"..."}]}`. Le client lit toujours `data.content[0].text`.
+La clé API est transmise via l'en-tête `X-Api-Key` et n'est jamais stockée côté serveur.
 
 Endpoints d'administration (voir §12) — authentification `Bearer` requise sauf mention :
 
@@ -362,11 +372,17 @@ Endpoints d'administration (voir §12) — authentification `Bearer` requise sau
 
 `GET /data/admin.js` est bloqué avec un 403.
 
-La clé API Anthropic est transmise par le navigateur via l'en-tête `X-Api-Key` et
-retransmise sans être stockée côté serveur ni écrite dans les logs.
+**Clés API par fournisseur** — chaque clé est stockée dans `sessionStorage` du
+navigateur (effacée à la fermeture de l'onglet) sous des clés séparées :
+
+| Fournisseur | Clé `sessionStorage` |
+|-------------|----------------------|
+| Anthropic | `_ak` |
+| OpenAI | `_ak_openai` |
+| Mistral | `_ak_mistral` |
 
 > **Sécurité** : en production, passer `--cors-origin https://votre-domaine.com`
-> pour restreindre l'accès au proxy API à votre seule origine.
+> pour restreindre l'accès aux proxies API à votre seule origine.
 
 ### `bin/sqlite2js.py`
 
@@ -442,13 +458,20 @@ Deux approches selon le volume.
 Dans le picker, cliquer **➕ Ajouter un examen** → onglet **▶ YouTube**.
 
 1. Coller une URL YouTube (vidéo ou playlist)
-2. Sélectionner la langue des sous-titres et le modèle (Claude Haiku/Sonnet ou Ollama)
-3. Saisir la clé API Anthropic si elle n'est pas déjà mémorisée
+2. Sélectionner la langue des sous-titres et le modèle (voir tableau ci-dessous)
+3. Saisir la clé API du fournisseur choisi si elle n'est pas déjà mémorisée
 4. Cliquer **Créer**
+
+| Groupe | Modèles disponibles |
+|--------|---------------------|
+| **Claude (Anthropic)** | Haiku 4.5 — rapide · Sonnet 4.6 — qualité |
+| **OpenAI** | GPT-4o mini — rapide · GPT-4o — qualité |
+| **Mistral** | Mistral Small — rapide · Mistral Large — qualité |
+| **Local** | Ollama (URL + nom de modèle configurables) |
 
 La clé est validée avant tout téléchargement. Elle est stockée dans `sessionStorage`
 du navigateur uniquement — jamais côté serveur, et effacée automatiquement à la
-fermeture de l'onglet ou du navigateur.
+fermeture de l'onglet ou du navigateur (voir §6 pour les clés par fournisseur).
 
 > Nécessite le mode serveur HTTP (`python3 bin/serve.py` ou container Docker).
 
@@ -478,9 +501,9 @@ python3 bin/sqlite2js.py
 
 ### Support Ollama (modèle local)
 
-Pour la génération de questions sans clé API Anthropic :
+Pour la génération de questions sans clé API cloud :
 
-1. Dans la modale "Ajouter un examen" → onglet YouTube, sélectionner **Ollama** dans le sélecteur de modèle
+1. Dans la modale "Ajouter un examen" → onglet YouTube, sélectionner **Ollama** dans le groupe *Local*
 2. Renseigner l'URL Ollama (défaut : `http://localhost:11434`) et le nom du modèle
 3. `serve.py` proxifie la requête vers Ollama (`POST /api/ollama`)
 
@@ -829,7 +852,8 @@ Ouvre un modal identique à la création, avec deux onglets source.
 | **📄 Markdown** | Fichier `.md` ou texte collé directement |
 
 Contrôles communs : langue du contenu, nombre de questions par segment (défaut : 5),
-modèle (Haiku / Sonnet / Ollama), clé API ou paramètres Ollama.
+modèle (Claude / OpenAI / Mistral / Ollama), clé API du fournisseur choisi ou
+paramètres Ollama. Les mêmes fournisseurs que la création sont disponibles.
 
 #### Déroulement
 
