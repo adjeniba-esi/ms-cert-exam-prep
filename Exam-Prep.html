@@ -2866,15 +2866,11 @@ function _providerMeta(model) {
   return {endpoint: _API_BASE+'/api/translate', storageKey: '_ak', label: 'Clé API Anthropic', placeholder: 'sk-ant-…'};
 }
 
-function _invalidateApiKey() {
-  const ytModel = document.getElementById('addex-yt-model')?.value;
-  const mdModel = document.getElementById('addex-md-model')?.value;
-  const ytKey = _providerMeta(ytModel).storageKey;
-  const mdKey = _providerMeta(mdModel).storageKey;
-  if (ytKey) sessionStorage.removeItem(ytKey);
-  if (mdKey && mdKey !== ytKey) sessionStorage.removeItem(mdKey);
-  const w  = document.getElementById('addex-apikey-wrap');    if (w)  w.style.display  = '';
-  const wm = document.getElementById('addex-md-apikey-wrap'); if (wm) wm.style.display = '';
+function _invalidateApiKey(model, apikeyWrapId) {
+  const meta = _providerMeta(model);
+  if (meta.storageKey) sessionStorage.removeItem(meta.storageKey);
+  const w = document.getElementById(apikeyWrapId);
+  if (w) w.style.display = '';
 }
 
 function _createEmptyQuestionsDB() {
@@ -2994,9 +2990,11 @@ async function _generateFromYoutube(title, subtitle, perExam, timeMin, passT) {
   const ytUrl = document.getElementById('addex-yt-url').value.trim();
   const lang  = document.getElementById('addex-yt-lang').value;
   const qpc   = parseInt(document.getElementById('addex-yt-qpc').value) || 5;
-  const ytModel = document.getElementById('addex-yt-model')?.value || 'claude-haiku-4-5-20251001';
-  const _useOllama = ytModel === 'ollama';
-  const ytMeta = _providerMeta(ytModel);
+  const ytModel     = document.getElementById('addex-yt-model')?.value || 'claude-haiku-4-5-20251001';
+  const _useOllama  = ytModel === 'ollama';
+  const ytMeta      = _providerMeta(ytModel);
+  const ytOllamaUrl   = (document.getElementById('addex-ollama-url')?.value   || 'http://localhost:11434').trim();
+  const ytOllamaModel = (document.getElementById('addex-ollama-model')?.value  || 'llama3.2').trim();
   let apiKey  = (!_useOllama && ytMeta.storageKey) ? (sessionStorage.getItem(ytMeta.storageKey) || '') : '';
   const keyEl = document.getElementById('addex-apikey');
   if (keyEl && keyEl.value.trim()) apiKey = keyEl.value.trim();
@@ -3010,8 +3008,8 @@ async function _generateFromYoutube(title, subtitle, perExam, timeMin, passT) {
   try {
     if (!_useOllama) {
       const keyLine = _addexLog('Vérification de la clé API…', 'cur');
-      if (!await _validateApiKey(apiKey)) {
-        _invalidateApiKey();
+      if (!await _validateApiKey(apiKey, ytModel)) {
+        _invalidateApiKey(ytModel, 'addex-apikey-wrap');
         keyLine.textContent = 'Clé API invalide.'; keyLine.className = 'addex-progress-line err';
         throw new Error('Clé API invalide (401). Saisissez une clé valide ci-dessus et réessayez.');
       }
@@ -3040,7 +3038,7 @@ async function _generateFromYoutube(title, subtitle, perExam, timeMin, passT) {
       for (var ci=0; ci<chunks.length; ci++) {
         var segLine = _addexLog('  Segment '+(ci+1)+'/'+chunks.length+'…', 'cur');
         try {
-          var qs = await _callClaudeQGen(apiKey, chunks[ci], qpc, tr.title);
+          var qs = await _callClaudeQGen(apiKey, chunks[ci], qpc, tr.title, {model: ytModel, ollamaUrl: ytOllamaUrl, ollamaModel: ytOllamaModel});
           var res = _insertQuestionsIntoDB(db, qs);
           totalInserted += res.inserted;
           segLine.textContent = '  Segment '+(ci+1)+'/'+chunks.length+' → '+res.inserted+' question(s)';
@@ -3048,7 +3046,7 @@ async function _generateFromYoutube(title, subtitle, perExam, timeMin, passT) {
         } catch(e) {
           segLine.textContent = '  Segment '+(ci+1)+' — ERREUR : '+e.message;
           segLine.className   = 'addex-progress-line err';
-          if (e.message.includes('401')) { _invalidateApiKey(); throw new Error('Clé API invalide (401). Corrigez-la ci-dessus et réessayez.'); }
+          if (e.message.includes('401')) { _invalidateApiKey(ytModel, 'addex-apikey-wrap'); throw new Error('Clé API invalide (401). Corrigez-la ci-dessus et réessayez.'); }
         }
       }
     }
@@ -3096,7 +3094,7 @@ async function _generateFromMarkdown(title, subtitle, perExam, timeMin, passT) {
     if (!_useOllama) {
       const keyLine = LOG('Vérification de la clé API…', 'cur');
       if (!await _validateApiKey(apiKey, model)) {
-        _invalidateApiKey();
+        _invalidateApiKey(model, 'addex-md-apikey-wrap');
         keyLine.textContent = 'Clé API invalide.'; keyLine.className = 'addex-progress-line err';
         throw new Error('Clé API invalide (401). Saisissez une clé valide ci-dessus et réessayez.');
       }
@@ -3121,7 +3119,7 @@ async function _generateFromMarkdown(title, subtitle, perExam, timeMin, passT) {
       } catch(e) {
         segLine.textContent = '  Segment '+(ci+1)+' — ERREUR : '+e.message;
         segLine.className   = 'addex-progress-line err';
-        if (e.message.includes('401')) { _invalidateApiKey(); throw new Error('Clé API invalide (401). Corrigez-la ci-dessus et réessayez.'); }
+        if (e.message.includes('401')) { _invalidateApiKey(model, 'addex-md-apikey-wrap'); throw new Error('Clé API invalide (401). Corrigez-la ci-dessus et réessayez.'); }
       }
     }
     if (!totalInserted) throw new Error('Aucune question générée. Vérifiez le contenu du fichier et la clé API.');

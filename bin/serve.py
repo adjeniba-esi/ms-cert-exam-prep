@@ -549,10 +549,12 @@ class ProxyHandler(http.server.SimpleHTTPRequestHandler):
     def _proxy_to_openai_compat(self, api_url):
         """Proxy générique pour les APIs OpenAI-compatibles (OpenAI, Mistral).
         Reçoit un body au format Anthropic-like, convertit, normalise la réponse."""
-        length  = int(self.headers.get('Content-Length', 0))
+        cl_header = self.headers.get('Content-Length')
+        if cl_header is None:
+            self._json_response(411, {'error': 'Content-Length requis'}); return
         api_key = self.headers.get('X-Api-Key', '')
         try:
-            body = json.loads(self.rfile.read(length))
+            body = json.loads(self.rfile.read(int(cl_header)))
         except Exception:
             self._json_response(400, {'error': 'JSON invalide'}); return
 
