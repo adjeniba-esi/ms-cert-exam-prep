@@ -1,0 +1,603 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Admin — Exam Prep</title>
+<style>
+:root{
+  --bg:#0b0f1a;--surface:#111827;--surface2:#1a2235;
+  --border:rgba(255,255,255,.07);--border2:rgba(255,255,255,.14);
+  --text:#e2e8f0;--text-muted:#94a3b8;--text-dim:#64748b;
+  --gold:#d4a853;--green:#22c55e;--red:#ef4444;
+  --font-mono:'SF Mono','Fira Code',monospace;
+  --radius:8px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:system-ui,sans-serif;min-height:100vh;font-size:14px}
+
+/* ── Login ── */
+#login-screen{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;gap:14px;padding:24px}
+#login-screen h1{font-size:1.4rem;font-weight:700;color:var(--gold)}
+#login-screen .sub{font-size:11px;color:var(--text-dim);font-family:var(--font-mono);letter-spacing:.1em;text-transform:uppercase;margin-bottom:8px}
+#login-screen input{width:300px;padding:10px 14px;background:var(--surface);border:.5px solid var(--border2);border-radius:var(--radius);color:var(--text);font-size:14px;outline:none;transition:border-color .15s}
+#login-screen input:focus{border-color:var(--gold)}
+#login-screen button{width:300px;padding:10px;background:var(--gold);color:#0b0f1a;border:none;border-radius:var(--radius);font-weight:700;font-size:14px;cursor:pointer;transition:filter .15s}
+#login-screen button:hover{filter:brightness(1.1)}
+#login-err{color:var(--red);font-size:13px;min-height:18px;text-align:center}
+
+/* ── Dashboard ── */
+#dashboard{display:none}
+header{background:var(--surface);border-bottom:.5px solid var(--border);padding:12px 24px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}
+header h1{font-size:.95rem;font-weight:700;color:var(--gold);font-family:var(--font-mono)}
+.hdr-right{display:flex;align-items:center;gap:10px}
+
+/* ── Toolbar ── */
+.toolbar{padding:14px 24px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;border-bottom:.5px solid var(--border);background:var(--surface)}
+.toolbar select,.toolbar input[type=text]{padding:7px 11px;background:var(--bg);border:.5px solid var(--border2);border-radius:6px;color:var(--text);font-size:13px;outline:none;transition:border-color .15s}
+.toolbar select:focus,.toolbar input[type=text]:focus{border-color:var(--gold)}
+.toolbar input[type=text]{flex:1;min-width:180px}
+#q-count{font-size:11px;color:var(--text-dim);font-family:var(--font-mono);white-space:nowrap}
+
+/* ── Notice banner ── */
+.notice{margin:14px 24px;padding:10px 14px;background:rgba(212,168,83,.07);border:.5px solid rgba(212,168,83,.3);border-radius:6px;font-size:12px;color:var(--text-muted)}
+
+/* ── Question table ── */
+.tbl-wrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;padding:9px 16px;color:var(--text-dim);font-weight:600;border-bottom:.5px solid var(--border);font-family:var(--font-mono);font-size:10px;letter-spacing:.06em;text-transform:uppercase;white-space:nowrap}
+td{padding:9px 16px;border-bottom:.5px solid var(--border);vertical-align:top}
+tr:hover td{background:var(--surface)}
+.col-id{color:var(--text-dim);font-family:var(--font-mono);font-size:12px;width:48px}
+.col-dom{color:var(--gold);font-family:var(--font-mono);font-size:11px;width:140px}
+.col-q{max-width:480px}
+.col-q-inner{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.4}
+.col-ans{font-family:var(--font-mono);font-size:11px;color:var(--green);width:70px}
+.col-multi{font-family:var(--font-mono);font-size:11px;color:var(--text-dim);width:50px;text-align:center}
+
+/* ── Buttons ── */
+.btn{padding:5px 12px;border-radius:6px;border:.5px solid var(--border2);background:var(--surface2);color:var(--text-muted);font-size:12px;cursor:pointer;transition:all .15s}
+.btn:hover{border-color:var(--gold);color:var(--gold)}
+.btn.sm{padding:3px 8px;font-size:11px}
+.btn.primary{background:var(--gold);color:#0b0f1a;border-color:var(--gold);font-weight:700}
+.btn.primary:hover{filter:brightness(1.1)}
+.btn.ghost{background:transparent;border-color:var(--border2)}
+
+/* ── Pagination ── */
+.pagination{display:flex;gap:8px;align-items:center;justify-content:center;padding:16px;font-size:13px;color:var(--text-dim)}
+
+/* ── Edit modal ── */
+#edit-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:200;overflow-y:auto;padding:32px 16px}
+#edit-overlay.open{display:flex;align-items:flex-start;justify-content:center}
+.edit-panel{background:var(--surface);border:.5px solid var(--border2);border-radius:12px;padding:24px;width:100%;max-width:740px;display:flex;flex-direction:column;gap:14px;margin:auto}
+.edit-panel h3{font-size:1rem;font-weight:700}
+.field-label{font-size:10px;font-family:var(--font-mono);color:var(--text-dim);letter-spacing:.06em;text-transform:uppercase;display:block;margin-bottom:5px}
+.edit-panel input[type=text],.edit-panel input[type=number],.edit-panel textarea{width:100%;padding:8px 12px;background:var(--bg);border:.5px solid var(--border2);border-radius:6px;color:var(--text);font-size:13px;outline:none;font-family:inherit;transition:border-color .15s}
+.edit-panel input:focus,.edit-panel textarea:focus{border-color:var(--gold)}
+.edit-panel textarea{resize:vertical;min-height:72px;line-height:1.5}
+.opt-row{display:flex;align-items:flex-start;gap:8px;margin-bottom:6px}
+.opt-key{font-size:12px;font-family:var(--font-mono);color:var(--text-dim);padding-top:9px;flex-shrink:0;width:18px;font-weight:700}
+.opt-row input[type=text]{flex:1}
+.opt-ctrl{padding-top:8px;flex-shrink:0;accent-color:var(--gold);width:16px;height:16px;cursor:pointer}
+.row2{display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap}
+.row2>div{flex:1;min-width:160px}
+.chk-row{display:flex;align-items:center;gap:8px;margin-top:6px}
+.chk-row input[type=checkbox]{accent-color:var(--gold);width:16px;height:16px;cursor:pointer;flex-shrink:0}
+.edit-msg{font-size:13px;min-height:18px}
+.edit-msg.ok{color:var(--green)}
+.edit-msg.err{color:var(--red)}
+.edit-actions{display:flex;gap:10px;justify-content:flex-end;padding-top:10px;border-top:.5px solid var(--border)}
+
+/* ── Password modal ── */
+#pwd-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:300;align-items:center;justify-content:center}
+#pwd-overlay.open{display:flex}
+.pwd-panel{background:var(--surface);border:.5px solid var(--border2);border-radius:12px;padding:24px;width:360px;display:flex;flex-direction:column;gap:12px}
+.pwd-panel h3{font-size:.95rem;font-weight:700}
+.pwd-panel input{width:100%;padding:8px 12px;background:var(--bg);border:.5px solid var(--border2);border-radius:6px;color:var(--text);font-size:13px;outline:none;transition:border-color .15s}
+.pwd-panel input:focus{border-color:var(--gold)}
+.pwd-msg{font-size:13px;min-height:18px}
+
+/* ── Spinner ── */
+.spin{display:inline-block;width:12px;height:12px;border:2px solid var(--border2);border-top-color:var(--gold);border-radius:50%;animation:_spin .6s linear infinite;margin-left:6px;vertical-align:middle}
+@keyframes _spin{to{transform:rotate(360deg)}}
+
+/* ── Empty / info rows ── */
+.td-center{text-align:center;padding:32px;color:var(--text-dim)}
+</style>
+</head>
+<body>
+
+<!-- ══ Login Screen ══════════════════════════════════════════ -->
+<div id="login-screen">
+  <div style="font-size:2.2rem">🔐</div>
+  <h1>Administration</h1>
+  <div class="sub">Exam Prep — Correction des questions</div>
+  <input type="password" id="pwd-input" placeholder="Mot de passe"
+         onkeydown="if(event.key==='Enter')doLogin()">
+  <button onclick="doLogin()">Se connecter</button>
+  <div id="login-err"></div>
+</div>
+
+<!-- ══ Dashboard ════════════════════════════════════════════ -->
+<div id="dashboard">
+  <header>
+    <h1>⚙️ Admin — Exam Prep</h1>
+    <div class="hdr-right">
+      <button class="btn sm ghost" onclick="openChangePwd()">🔑 Mot de passe</button>
+      <button class="btn sm ghost" onclick="doLogout()">Déconnexion</button>
+    </div>
+  </header>
+
+  <div class="notice" id="container-notice" style="display:none">
+    ⚠️ <strong>Déploiement conteneur :</strong> les modifications sont stockées dans le conteneur actif et
+    seront perdues au prochain redéploiement.
+    Utilisez <strong>⬇ Exporter SQLite</strong> pour sauvegarder les changements et les committer dans le dépôt.
+  </div>
+
+  <div class="toolbar">
+    <select id="exam-select" onchange="loadQuestions(1)">
+      <option value="">— Choisir un examen —</option>
+    </select>
+    <input type="text" id="q-search" placeholder="🔍 Rechercher dans les questions…"
+           oninput="searchDebounce()">
+    <button class="btn" id="export-btn" style="display:none" onclick="exportSqlite()">
+      ⬇ Exporter SQLite
+    </button>
+    <span id="q-count"></span>
+  </div>
+
+  <div class="tbl-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>#</th><th>Domaine</th><th>Question</th>
+          <th>Bonne(s) rép.</th><th style="text-align:center">Multi</th><th></th>
+        </tr>
+      </thead>
+      <tbody id="q-tbody">
+        <tr><td colspan="6" class="td-center">Sélectionnez un examen</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="pagination" id="pagination"></div>
+</div>
+
+<!-- ══ Edit Modal ════════════════════════════════════════════ -->
+<div id="edit-overlay">
+  <div class="edit-panel">
+    <h3>Modifier la question
+      <span id="edit-qid" style="color:var(--text-dim);font-family:var(--font-mono);font-size:.8rem;margin-left:6px"></span>
+    </h3>
+
+    <div>
+      <span class="field-label">Domaine</span>
+      <input type="text" id="edit-domain" placeholder="ex : Data Governance">
+    </div>
+
+    <div>
+      <span class="field-label">Énoncé</span>
+      <textarea id="edit-question" rows="4"></textarea>
+    </div>
+
+    <div>
+      <span class="field-label">Options <small style="opacity:.6;font-family:inherit;text-transform:none;letter-spacing:0">(cochez la / les bonne(s) réponse(s))</small></span>
+      <div id="edit-opts"></div>
+    </div>
+
+    <div class="row2">
+      <div>
+        <span class="field-label">Type de question</span>
+        <div class="chk-row">
+          <input type="checkbox" id="edit-ismulti" onchange="onMultiChange()">
+          <span style="font-size:13px;color:var(--text-muted)">Choix multiples</span>
+        </div>
+      </div>
+      <div id="selcount-wrap" style="display:none">
+        <span class="field-label">Nombre de bonnes réponses</span>
+        <input type="number" id="edit-selcount" value="2" min="2" max="6" style="width:90px">
+      </div>
+    </div>
+
+    <div>
+      <span class="field-label">Explication</span>
+      <textarea id="edit-explanation" rows="4"></textarea>
+    </div>
+
+    <div class="edit-msg" id="edit-msg"></div>
+    <div class="edit-actions">
+      <button class="btn ghost" onclick="closeEdit()">Annuler</button>
+      <button class="btn primary" onclick="saveQuestion()">Sauvegarder</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ Change Password Modal ════════════════════════════════ -->
+<div id="pwd-overlay">
+  <div class="pwd-panel">
+    <h3>🔑 Changer le mot de passe</h3>
+    <div>
+      <span class="field-label">Nouveau mot de passe</span>
+      <input type="password" id="new-pwd" placeholder="Nouveau mot de passe">
+    </div>
+    <div>
+      <span class="field-label">Confirmation</span>
+      <input type="password" id="new-pwd2" placeholder="Confirmer le mot de passe"
+             onkeydown="if(event.key==='Enter')doChangePwd()">
+    </div>
+    <div class="pwd-msg" id="pwd-msg"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn ghost" onclick="closeChangePwd()">Annuler</button>
+      <button class="btn primary" onclick="doChangePwd()">Changer</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── Config ────────────────────────────────────────────────────
+// Même logique que _API_BASE dans Exam-Prep.html
+const _API_BASE = (function(){
+  const p = window.location.pathname;
+  const base = p.endsWith('/') ? p.slice(0,-1) : p.replace(/\/[^/]*$/, '');
+  return (base === '' || base === '/') ? '' : base;
+})();
+
+let _token = '';
+let _curExam = '';
+let _curPage = 1;
+let _curQ    = null;
+let _searchT = null;
+
+// ── Crypto ────────────────────────────────────────────────────
+async function sha256hex(str) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
+}
+
+// ── Fetch helper ─────────────────────────────────────────────
+function apiFetch(path, opts) {
+  opts = opts || {};
+  if (_token) {
+    opts.headers = Object.assign({'Authorization': 'Bearer ' + _token}, opts.headers || {});
+  }
+  return fetch(_API_BASE + path, opts);
+}
+
+// ── Auth ─────────────────────────────────────────────────────
+async function doLogin() {
+  const pwd = document.getElementById('pwd-input').value;
+  const err = document.getElementById('login-err');
+  err.textContent = '';
+  if (!pwd) { err.textContent = 'Saisissez un mot de passe.'; return; }
+
+  try {
+    const sr = await fetch(_API_BASE + '/api/admin/salt');
+    if (!sr.ok) throw new Error('Serveur inaccessible (mode HTTP requis).');
+    const { salt } = await sr.json();
+    const hash = await sha256hex(salt + pwd);
+
+    // Verify by calling a protected endpoint
+    const er = await fetch(_API_BASE + '/api/admin/exams', {
+      headers: { 'Authorization': 'Bearer ' + hash }
+    });
+    if (er.status === 401) { err.textContent = 'Mot de passe incorrect.'; return; }
+    if (!er.ok) throw new Error('Erreur serveur ' + er.status);
+
+    _token = hash;
+    sessionStorage.setItem('_adminHash', hash);
+    showDashboard(await er.json());
+  } catch(e) {
+    err.textContent = 'Erreur : ' + e.message;
+  }
+}
+
+function doLogout() {
+  sessionStorage.removeItem('_adminHash');
+  _token = ''; _curExam = '';
+  document.getElementById('dashboard').style.display = 'none';
+  document.getElementById('login-screen').style.display = 'flex';
+  document.getElementById('pwd-input').value = '';
+  document.getElementById('login-err').textContent = '';
+}
+
+// ── Dashboard ─────────────────────────────────────────────────
+async function showDashboard(exams) {
+  document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('dashboard').style.display = 'block';
+
+  const sel = document.getElementById('exam-select');
+  sel.innerHTML = '<option value="">— Choisir un examen —</option>';
+  exams.forEach(e => {
+    const o = document.createElement('option');
+    o.value = e.id;
+    o.textContent = e.id.toUpperCase() + ' — ' + (e.title || e.id);
+    sel.appendChild(o);
+  });
+
+  // Detect container environment
+  try {
+    const r = await apiFetch('/api/admin/env');
+    if (r.ok) {
+      const d = await r.json();
+      if (d.container) document.getElementById('container-notice').style.display = '';
+    }
+  } catch(_) {}
+}
+
+// ── Questions ─────────────────────────────────────────────────
+async function loadQuestions(page) {
+  _curPage = page || 1;
+  const exam   = document.getElementById('exam-select').value;
+  const search = document.getElementById('q-search').value.trim();
+  _curExam = exam;
+
+  document.getElementById('export-btn').style.display = exam ? '' : 'none';
+
+  if (!exam) {
+    document.getElementById('q-tbody').innerHTML =
+      '<tr><td colspan="6" class="td-center">Sélectionnez un examen</td></tr>';
+    document.getElementById('q-count').textContent = '';
+    document.getElementById('pagination').innerHTML = '';
+    return;
+  }
+
+  document.getElementById('q-tbody').innerHTML =
+    '<tr><td colspan="6" class="td-center">Chargement<span class="spin"></span></td></tr>';
+
+  try {
+    const params = new URLSearchParams({ exam, search, page: _curPage, per_page: 50 });
+    const r = await apiFetch('/api/admin/questions?' + params);
+    if (!r.ok) throw new Error('Erreur ' + r.status);
+    renderTable(await r.json());
+  } catch(e) {
+    document.getElementById('q-tbody').innerHTML =
+      `<tr><td colspan="6" class="td-center" style="color:var(--red)">Erreur : ${esc(e.message)}</td></tr>`;
+  }
+}
+
+function renderTable(data) {
+  document.getElementById('q-count').textContent = data.total + ' question(s)';
+  const OPT = ['A','B','C','D','E','F'];
+
+  if (!data.questions.length) {
+    document.getElementById('q-tbody').innerHTML =
+      '<tr><td colspan="6" class="td-center">Aucune question trouvée</td></tr>';
+    document.getElementById('pagination').innerHTML = '';
+    return;
+  }
+
+  document.getElementById('q-tbody').innerHTML = data.questions.map(q => {
+    const idxs  = String(q.correct_idx || '0').split(',').map(s => s.trim());
+    const ans   = idxs.map(i => OPT[+i] || '?').join(', ');
+    const multi = q.is_multi ? '✓' : '—';
+    return `<tr>
+      <td class="col-id">${q.id}</td>
+      <td class="col-dom">${esc(q.domain||'—')}</td>
+      <td class="col-q"><div class="col-q-inner">${esc(q.question||'')}</div></td>
+      <td class="col-ans">${ans}</td>
+      <td class="col-multi">${multi}</td>
+      <td><button class="btn sm" onclick="openEdit(${q.id})">Modifier</button></td>
+    </tr>`;
+  }).join('');
+
+  renderPagination(data.total, _curPage, data.per_page);
+}
+
+function renderPagination(total, page, perPage) {
+  const pages = Math.ceil(total / perPage);
+  const el = document.getElementById('pagination');
+  if (pages <= 1) { el.innerHTML = ''; return; }
+  let h = '';
+  if (page > 1) h += `<button class="btn sm" onclick="loadQuestions(${page-1})">← Préc.</button>`;
+  h += `<span>Page ${page} / ${pages}</span>`;
+  if (page < pages) h += `<button class="btn sm" onclick="loadQuestions(${page+1})">Suiv. →</button>`;
+  el.innerHTML = h;
+}
+
+function searchDebounce() {
+  clearTimeout(_searchT);
+  _searchT = setTimeout(() => loadQuestions(1), 380);
+}
+
+// ── Edit modal ────────────────────────────────────────────────
+async function openEdit(qid) {
+  try {
+    const params = new URLSearchParams({ exam: _curExam, id: qid });
+    const r = await apiFetch('/api/admin/question?' + params);
+    if (!r.ok) throw new Error('Chargement impossible');
+    _curQ = await r.json();
+    populateEdit(_curQ);
+    document.getElementById('edit-overlay').classList.add('open');
+  } catch(e) {
+    alert('Erreur : ' + e.message);
+  }
+}
+
+function populateEdit(q) {
+  document.getElementById('edit-qid').textContent = '#' + q.id;
+  document.getElementById('edit-domain').value = q.domain || '';
+  document.getElementById('edit-question').value = q.question || '';
+  document.getElementById('edit-explanation').value = q.explanation || '';
+  document.getElementById('edit-ismulti').checked = !!q.is_multi;
+  document.getElementById('edit-selcount').value = q.select_count || 2;
+  document.getElementById('selcount-wrap').style.display = q.is_multi ? '' : 'none';
+  document.getElementById('edit-msg').textContent = '';
+  document.getElementById('edit-msg').className = 'edit-msg';
+  renderOpts(q);
+}
+
+function renderOpts(q) {
+  const KEYS  = ['a','b','c','d','e','f'];
+  const LABS  = ['A','B','C','D','E','F'];
+  const isMulti = document.getElementById('edit-ismulti').checked;
+  const correct = String((q || _curQ).correct_idx || '0').split(',').map(s => s.trim());
+
+  const wrap = document.getElementById('edit-opts');
+  wrap.innerHTML = '';
+  KEYS.forEach((k, i) => {
+    const val = (q || _curQ)['opt_' + k] || '';
+    // Show E/F only if they have content or it's an existing multi option
+    if (i >= 4 && !val) return;
+    const checked = correct.includes(String(i)) ? 'checked' : '';
+    const type  = isMulti ? 'checkbox' : 'radio';
+    const row   = document.createElement('div');
+    row.className = 'opt-row';
+    row.innerHTML = `
+      <span class="opt-key">${LABS[i]}</span>
+      <input type="text" id="eo-${k}" value="${escAttr(val)}" placeholder="Option ${LABS[i]}">
+      <input type="${type}" class="opt-ctrl" name="opc" id="oc-${i}" value="${i}" ${checked}>`;
+    wrap.appendChild(row);
+  });
+  // Always show add-E/F row if not already visible
+  if (!document.getElementById('eo-e')) {
+    const row = document.createElement('div'); row.className = 'opt-row';
+    row.innerHTML = `<span class="opt-key">E</span>
+      <input type="text" id="eo-e" placeholder="Option E (facultatif)">
+      <input type="${isMulti?'checkbox':'radio'}" class="opt-ctrl" name="opc" id="oc-4" value="4">`;
+    wrap.appendChild(row);
+  }
+  if (!document.getElementById('eo-f')) {
+    const row = document.createElement('div'); row.className = 'opt-row';
+    row.innerHTML = `<span class="opt-key">F</span>
+      <input type="text" id="eo-f" placeholder="Option F (facultatif)">
+      <input type="${isMulti?'checkbox':'radio'}" class="opt-ctrl" name="opc" id="oc-5" value="5">`;
+    wrap.appendChild(row);
+  }
+}
+
+function onMultiChange() {
+  document.getElementById('selcount-wrap').style.display =
+    document.getElementById('edit-ismulti').checked ? '' : 'none';
+  renderOpts(_curQ);
+}
+
+function closeEdit() {
+  document.getElementById('edit-overlay').classList.remove('open');
+  _curQ = null;
+}
+
+function getCorrectIdx() {
+  const isMulti = document.getElementById('edit-ismulti').checked;
+  if (isMulti) {
+    return [...document.querySelectorAll('#edit-opts .opt-ctrl:checked')]
+      .map(el => el.value).join(',');
+  }
+  const el = document.querySelector('#edit-opts .opt-ctrl:checked');
+  return el ? el.value : '0';
+}
+
+async function saveQuestion() {
+  const msg = document.getElementById('edit-msg');
+  msg.textContent = 'Sauvegarde…'; msg.className = 'edit-msg';
+
+  const KEYS = ['a','b','c','d','e','f'];
+  const payload = {
+    exam: _curExam, id: _curQ.id,
+    domain:       document.getElementById('edit-domain').value.trim(),
+    question:     document.getElementById('edit-question').value.trim(),
+    explanation:  document.getElementById('edit-explanation').value.trim(),
+    is_multi:     document.getElementById('edit-ismulti').checked ? 1 : 0,
+    select_count: parseInt(document.getElementById('edit-selcount').value) || 1,
+    correct_idx:  getCorrectIdx(),
+  };
+  KEYS.forEach(k => {
+    const el = document.getElementById('eo-' + k);
+    payload['opt_' + k] = el ? el.value.trim() : '';
+  });
+
+  try {
+    const r = await apiFetch('/api/admin/update-question', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || 'Erreur ' + r.status);
+    msg.textContent = '✓ Sauvegardé'; msg.className = 'edit-msg ok';
+    setTimeout(closeEdit, 700);
+    loadQuestions(_curPage);
+  } catch(e) {
+    msg.textContent = '✗ ' + e.message; msg.className = 'edit-msg err';
+  }
+}
+
+// ── Export SQLite ─────────────────────────────────────────────
+async function exportSqlite() {
+  try {
+    const r = await apiFetch('/api/admin/export?exam=' + encodeURIComponent(_curExam));
+    if (!r.ok) throw new Error('Erreur ' + r.status);
+    const blob = await r.blob();
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href = url; a.download = _curExam + '.sqlite'; a.click();
+    URL.revokeObjectURL(url);
+  } catch(e) {
+    alert('Export impossible : ' + e.message);
+  }
+}
+
+// ── Change password ───────────────────────────────────────────
+function openChangePwd() {
+  document.getElementById('new-pwd').value = '';
+  document.getElementById('new-pwd2').value = '';
+  document.getElementById('pwd-msg').textContent = '';
+  document.getElementById('pwd-overlay').classList.add('open');
+}
+function closeChangePwd() {
+  document.getElementById('pwd-overlay').classList.remove('open');
+}
+
+async function doChangePwd() {
+  const p1  = document.getElementById('new-pwd').value;
+  const p2  = document.getElementById('new-pwd2').value;
+  const msg = document.getElementById('pwd-msg');
+  msg.textContent = '';
+  if (!p1) { msg.style.color='var(--red)'; msg.textContent='Saisissez un mot de passe.'; return; }
+  if (p1 !== p2) { msg.style.color='var(--red)'; msg.textContent='Les mots de passe ne correspondent pas.'; return; }
+
+  // Generate new credentials client-side
+  const salt = Array.from(crypto.getRandomValues(new Uint8Array(16)))
+    .map(b => b.toString(16).padStart(2,'0')).join('');
+  const hash = await sha256hex(salt + p1);
+
+  try {
+    const r = await apiFetch('/api/admin/change-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ salt, hash })
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || 'Erreur');
+    _token = hash;
+    sessionStorage.setItem('_adminHash', hash);
+    msg.style.color = 'var(--green)'; msg.textContent = '✓ Mot de passe changé.';
+    setTimeout(closeChangePwd, 1000);
+  } catch(e) {
+    msg.style.color = 'var(--red)'; msg.textContent = '✗ ' + e.message;
+  }
+}
+
+// ── Utils ─────────────────────────────────────────────────────
+function esc(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+function escAttr(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;');
+}
+
+// ── Init ──────────────────────────────────────────────────────
+(async function init() {
+  const saved = sessionStorage.getItem('_adminHash');
+  if (saved) {
+    _token = saved;
+    try {
+      const r = await apiFetch('/api/admin/exams');
+      if (r.ok) { showDashboard(await r.json()); return; }
+    } catch(_) {}
+    _token = '';
+    sessionStorage.removeItem('_adminHash');
+  }
+  // Show login (already visible by default)
+})();
+</script>
+</body>
+</html>

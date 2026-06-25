@@ -18,7 +18,8 @@ Usage :
 Puis ouvrez : http://localhost:8080/Exam-Prep.html
 """
 import http.server, urllib.request, urllib.error, ssl, os, sys
-import json, re, tempfile, glob, time
+import json, re, tempfile, glob, time, sqlite3 as _sqlite3, hashlib as _hashlib
+from urllib.parse import urlparse, parse_qs
 
 try:
     import yt_dlp as _yt_dlp
@@ -39,6 +40,138 @@ if '--cors-origin' in sys.argv:
 ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages'
 SSL_CTX = ssl.create_default_context()
 
+ADMIN_CREDS_FILE = 'data/admin.js'
+ADMIN_FIELDS = {'domain','question','opt_a','opt_b','opt_c','opt_d','opt_e','opt_f',
+                'correct_idx','explanation','is_multi','select_count'}
+
+
+def _admin_load_creds():
+    try:
+        with open(ADMIN_CREDS_FILE, encoding='utf-8') as f:
+            m = re.search(r'window\.__ADMIN_CREDS\s*=\s*(\{[^}]+\})', f.read())
+            if m:
+                return json.loads(m.group(1))
+    except Exception:
+        pass
+    return None
+
+
+def _admin_verify(handler):
+    auth = handler.headers.get('Authorization', '')
+    if not auth.startswith('Bearer '):
+        return False
+    token = auth[7:].strip()
+    creds = _admin_load_creds()
+    return bool(creds and token == creds.get('hash', ''))
+
+
+def _admin_list_exams():
+    try:
+        with open('exams/index.json', encoding='utf-8') as f:
+            ids = json.load(f).get('exams', [])
+    except Exception:
+        ids = []
+    exams = []
+    for eid in ids:
+        meta = {}
+        try:
+            with open(f'exams/{eid}.json', encoding='utf-8') as f:
+                meta = json.load(f)
+        except Exception:
+            pass
+        exams.append({'id': eid, 'title': meta.get('title', eid),
+                      'subtitle': meta.get('subtitle', '')})
+    return exams
+
+
+def _admin_get_questions(exam, search='', page=1, per_page=50):
+    path = f'data/content/{exam}.sqlite'
+    if not os.path.exists(path):
+        return None, 'Examen introuvable'
+    try:
+        conn = _sqlite3.connect(path)
+        conn.row_factory = _sqlite3.Row
+        where, params = '', []
+        if search:
+            where  = 'WHERE (question LIKE ? OR domain LIKE ?)'
+            params = [f'%{search}%', f'%{search}%']
+        total  = conn.execute(f'SELECT COUNT(*) FROM questions {where}', params).fetchone()[0]
+        offset = (page - 1) * per_page
+        rows   = conn.execute(
+            f'SELECT id,domain,question,opt_a,opt_b,opt_c,opt_d,'
+            f'COALESCE(opt_e,"") AS opt_e,COALESCE(opt_f,"") AS opt_f,'
+            f'correct_idx,explanation,is_multi,select_count FROM questions {where}'
+            f' ORDER BY id LIMIT ? OFFSET ?',
+            params + [per_page, offset]).fetchall()
+        conn.close()
+        return {'total': total, 'page': page, 'per_page': per_page,
+                'questions': [dict(r) for r in rows]}, None
+    except Exception as e:
+        return None, str(e)
+
+
+def _admin_get_question(exam, qid):
+    path = f'data/content/{exam}.sqlite'
+    if not os.path.exists(path):
+        return None, 'Examen introuvable'
+    try:
+        conn = _sqlite3.connect(path)
+        conn.row_factory = _sqlite3.Row
+        row = conn.execute(
+            'SELECT id,domain,question,opt_a,opt_b,opt_c,opt_d,'
+            'COALESCE(opt_e,"") AS opt_e,COALESCE(opt_f,"") AS opt_f,'
+            'correct_idx,explanation,is_multi,select_count FROM questions WHERE id=?',
+            [qid]).fetchone()
+        conn.close()
+        if not row:
+            return None, 'Question introuvable'
+        return dict(row), None
+    except Exception as e:
+        return None, str(e)
+
+
+def _admin_update_question(exam, qid, fields):
+    path = f'data/content/{exam}.sqlite'
+    if not os.path.exists(path):
+        return 'Examen introuvable'
+    updates = {k: v for k, v in fields.items() if k in ADMIN_FIELDS}
+    if not updates:
+        return 'Aucun champ valide'
+    try:
+        conn  = _sqlite3.connect(path)
+        sets  = ', '.join(f'{k}=?' for k in updates)
+        vals  = list(updates.values()) + [qid]
+        conn.execute(f'UPDATE questions SET {sets} WHERE id=?', vals)
+        conn.commit()
+        conn.close()
+        _bump_exam_version(exam)
+        return None
+    except Exception as e:
+        return str(e)
+
+
+def _bump_exam_version(exam):
+    path = f'exams/{exam}.json'
+    try:
+        with open(path, encoding='utf-8') as f:
+            meta = json.load(f)
+        meta['version'] = meta.get('version', 1) + 1
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(meta, f, indent=2, ensure_ascii=False)
+    except Exception:
+        pass
+
+
+def _admin_save_creds(salt, hash_):
+    creds = {'salt': salt, 'hash': hash_}
+    content = 'window.__ADMIN_CREDS = ' + json.dumps(creds) + ';\n'
+    try:
+        with open(ADMIN_CREDS_FILE, 'w', encoding='utf-8') as f:
+            f.write(content)
+        return None
+    except Exception as e:
+        return str(e)
+
 
 def _clean_srt(text):
     text = re.sub(r'^\d+\s*$', '', text, flags=re.MULTILINE)
@@ -51,10 +184,58 @@ def _clean_srt(text):
 class ProxyHandler(http.server.SimpleHTTPRequestHandler):
 
     def do_OPTIONS(self):
-        """Répondre aux preflight CORS."""
         self.send_response(200)
         self._cors_headers()
         self.end_headers()
+
+    def do_GET(self):
+        # Block admin credentials file
+        if self.path == '/data/admin.js':
+            self.send_error(403, 'Forbidden')
+            return
+        p = urlparse(self.path)
+        if p.path == '/api/admin/salt':
+            creds = _admin_load_creds()
+            if not creds:
+                self._json_response(503, {'error': 'Fichier admin.js introuvable'}); return
+            self._json_response(200, {'salt': creds['salt']}); return
+        if p.path == '/api/admin/env':
+            container = os.path.exists('/.dockerenv') or bool(os.environ.get('KUBERNETES_SERVICE_HOST'))
+            self._json_response(200, {'container': container}); return
+        if p.path.startswith('/api/admin/'):
+            if not _admin_verify(self):
+                self._json_response(401, {'error': 'Non autorisé'}); return
+            qs = parse_qs(p.query)
+            get = lambda k, d='': (qs.get(k, [d]) or [d])[0]
+            if p.path == '/api/admin/exams':
+                self._json_response(200, _admin_list_exams()); return
+            if p.path == '/api/admin/questions':
+                data, err = _admin_get_questions(
+                    get('exam'), get('search'), int(get('page','1')), int(get('per_page','50')))
+                if err: self._json_response(400, {'error': err}); return
+                self._json_response(200, data); return
+            if p.path == '/api/admin/question':
+                data, err = _admin_get_question(get('exam'), int(get('id','0')))
+                if err: self._json_response(404, {'error': err}); return
+                self._json_response(200, data); return
+            if p.path == '/api/admin/export':
+                self._admin_export_sqlite(get('exam')); return
+            self.send_error(404, 'Not found'); return
+        super().do_GET()
+
+    def _admin_export_sqlite(self, exam):
+        path = f'data/content/{exam}.sqlite'
+        if not os.path.exists(path):
+            self._json_response(404, {'error': 'Examen introuvable'}); return
+        with open(path, 'rb') as f:
+            data = f.read()
+        self.send_response(200)
+        self._cors_headers()
+        self.send_header('Content-Type', 'application/octet-stream')
+        self.send_header('Content-Disposition', f'attachment; filename="{exam}.sqlite"')
+        self.send_header('Content-Length', str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
 
     def do_POST(self):
         if self.path == '/api/translate':
@@ -63,8 +244,38 @@ class ProxyHandler(http.server.SimpleHTTPRequestHandler):
             self._get_transcript()
         elif self.path == '/api/ollama':
             self._proxy_to_ollama()
+        elif self.path.startswith('/api/admin/'):
+            self._admin_post()
         else:
             self.send_error(404, 'Not found')
+
+    def _admin_post(self):
+        if not _admin_verify(self):
+            self._json_response(401, {'error': 'Non autorisé'}); return
+        length = int(self.headers.get('Content-Length', 0))
+        try:
+            body = json.loads(self.rfile.read(length))
+        except Exception:
+            self._json_response(400, {'error': 'JSON invalide'}); return
+
+        if self.path == '/api/admin/update-question':
+            exam = body.get('exam', '')
+            qid  = int(body.get('id', 0))
+            fields = {k: v for k, v in body.items() if k in ADMIN_FIELDS}
+            err = _admin_update_question(exam, qid, fields)
+            if err: self._json_response(400, {'error': err}); return
+            self._json_response(200, {'ok': True}); return
+
+        if self.path == '/api/admin/change-password':
+            salt = str(body.get('salt', ''))
+            hash_ = str(body.get('hash', ''))
+            if not salt or not hash_:
+                self._json_response(400, {'error': 'salt et hash requis'}); return
+            err = _admin_save_creds(salt, hash_)
+            if err: self._json_response(500, {'error': err}); return
+            self._json_response(200, {'ok': True}); return
+
+        self.send_error(404, 'Not found')
 
     def _proxy_to_anthropic(self):
         """Forwarder la requête vers l'API Anthropic et renvoyer la réponse."""
@@ -237,7 +448,7 @@ class ProxyHandler(http.server.SimpleHTTPRequestHandler):
         self.send_header('Access-Control-Allow-Origin',  CORS_ORIGIN)
         self.send_header('Access-Control-Allow-Methods', 'POST, GET, OPTIONS')
         self.send_header('Access-Control-Allow-Headers',
-                         'Content-Type, X-Api-Key, anthropic-version')
+                         'Content-Type, X-Api-Key, anthropic-version, Authorization')
 
     def log_message(self, fmt, *args):
         msg  = fmt % args
