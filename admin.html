@@ -408,6 +408,7 @@ tr:hover td{background:var(--surface)}
   </div>
 </div>
 
+<script src="js/provider-meta.js"></script>
 <script>
 // ── Config ────────────────────────────────────────────────────
 // Même logique que _API_BASE dans Exam-Prep.html
@@ -424,16 +425,6 @@ let _curPage = 1;
 let _curQ    = null;
 let _searchT = null;
 let _forcedPwdChange = false;
-
-function _providerMeta(model) {
-  if (model === 'ollama')
-    return {endpoint: null, storageKey: null, label: 'Clé API', placeholder: 'sk-…'};
-  if (model && model.startsWith('gpt-'))
-    return {endpoint: _API_BASE+'/api/openai',  storageKey: '_ak_openai',  label: 'Clé API OpenAI',  placeholder: 'sk-…'};
-  if (model && (model.startsWith('mistral-') || model.startsWith('open-mistral-')))
-    return {endpoint: _API_BASE+'/api/mistral', storageKey: '_ak_mistral', label: 'Clé API Mistral', placeholder: 'sk-…'};
-  return {endpoint: _API_BASE+'/api/translate', storageKey: '_ak', label: 'Clé API Anthropic', placeholder: 'sk-ant-…'};
-}
 
 // ── Crypto ────────────────────────────────────────────────────
 async function sha256hex(str) {
@@ -874,7 +865,7 @@ async function _callUpdModel(apiKey, chunk, existingCtx, nQ, model, ollamaUrl, o
   const meta = _providerMeta(model);
   let endpoint, body, headers;
   if (model === 'ollama') {
-    endpoint = _API_BASE + '/api/ollama';
+    endpoint = meta.endpoint;
     body     = JSON.stringify({ollama_url: ollamaUrl, model: ollamaModel,
                                system: _QUP_SYSTEM, messages: [{role:'user', content: userMsg}]});
     headers  = {'Content-Type': 'application/json'};
@@ -927,8 +918,8 @@ function openUpdateModal() {
   document.getElementById('upd-run-btn').disabled = false;
   document.getElementById('upd-run-btn').textContent = '🔄 Mettre à jour';
   // Pre-fill API key from session (provider-aware)
-  onUpdModelChange();
   const model = document.getElementById('upd-model').value;
+  onUpdModelChange(model);
   const meta = _providerMeta(model);
   const saved = meta.storageKey ? sessionStorage.getItem(meta.storageKey) : null;
   const keyEl = document.getElementById('upd-apikey');
@@ -948,8 +939,8 @@ function setUpdTab(tab) {
   document.getElementById('upd-tab-md').classList.toggle('active', tab === 'md');
 }
 
-function onUpdModelChange() {
-  const model = document.getElementById('upd-model').value;
+function onUpdModelChange(model) {
+  model = model || document.getElementById('upd-model').value;
   const isOllama = model === 'ollama';
   const meta = _providerMeta(model);
   document.getElementById('upd-ollama-wrap').style.display = isOllama ? '' : 'none';

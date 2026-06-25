@@ -1119,6 +1119,7 @@ else if (typeof exports === 'object'){
 }
 
 </script>
+<script src="js/provider-meta.js"></script>
 
 <script>
 // WebAssembly binary (base64) — no network request needed
@@ -2856,16 +2857,6 @@ var _QGN_SYSTEM = 'Tu es un expert en création de questionnaires de certificati
   'Réponds UNIQUEMENT avec un tableau JSON valide, sans texte autour :\n' +
   '[{"domain":"...","question":"...","opt_a":"...","opt_b":"...","opt_c":"...","opt_d":"...","opt_e":"","opt_f":"","correct_idx":"0","explanation":"...","is_multi":0,"select_count":1}]';
 
-function _providerMeta(model) {
-  if (model === 'ollama')
-    return {endpoint: null, storageKey: null, label: 'Clé API', placeholder: 'sk-…'};
-  if (model && model.startsWith('gpt-'))
-    return {endpoint: _API_BASE+'/api/openai',  storageKey: '_ak_openai',  label: 'Clé API OpenAI',  placeholder: 'sk-…'};
-  if (model && (model.startsWith('mistral-') || model.startsWith('open-mistral-')))
-    return {endpoint: _API_BASE+'/api/mistral', storageKey: '_ak_mistral', label: 'Clé API Mistral', placeholder: 'sk-…'};
-  return {endpoint: _API_BASE+'/api/translate', storageKey: '_ak', label: 'Clé API Anthropic', placeholder: 'sk-ant-…'};
-}
-
 function _invalidateApiKey(model, apikeyWrapId) {
   const meta = _providerMeta(model);
   if (meta.storageKey) sessionStorage.removeItem(meta.storageKey);
@@ -2948,7 +2939,7 @@ async function _callClaudeQGen(apiKey, chunk, nQ, title, opts) {
 
   const meta = _providerMeta(model);
   if (model === 'ollama') {
-    endpoint = _API_BASE+'/api/ollama';
+    endpoint = meta.endpoint;
     body     = JSON.stringify({ollama_url:ollamaUrl, model:ollamaModel, system:_QGN_SYSTEM, messages:[{role:'user',content:msgContent}]});
     headers  = {'Content-Type':'application/json'};
   } else {
