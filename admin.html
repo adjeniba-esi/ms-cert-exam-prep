@@ -285,9 +285,21 @@ tr:hover td{background:var(--surface)}
       <div>
         <span class="field-label">Modèle</span>
         <select id="upd-model" onchange="onUpdModelChange()">
-          <option value="claude-haiku-4-5-20251001">Haiku — rapide</option>
-          <option value="claude-sonnet-4-6">Sonnet — qualité</option>
-          <option value="ollama">Ollama (local)</option>
+          <optgroup label="Claude (Anthropic)">
+            <option value="claude-haiku-4-5-20251001">Haiku — rapide</option>
+            <option value="claude-sonnet-4-6">Sonnet — qualité</option>
+          </optgroup>
+          <optgroup label="OpenAI">
+            <option value="gpt-4o-mini">GPT-4o mini — rapide</option>
+            <option value="gpt-4o">GPT-4o — qualité</option>
+          </optgroup>
+          <optgroup label="Mistral">
+            <option value="mistral-small-latest">Mistral Small — rapide</option>
+            <option value="mistral-large-latest">Mistral Large — qualité</option>
+          </optgroup>
+          <optgroup label="Local">
+            <option value="ollama">Ollama (local)</option>
+          </optgroup>
         </select>
       </div>
     </div>
@@ -308,8 +320,8 @@ tr:hover td{background:var(--surface)}
 
     <!-- API key -->
     <div id="upd-apikey-wrap">
-      <span class="field-label">Clé API Anthropic</span>
-      <input type="password" id="upd-apikey" placeholder="sk-ant-…">
+      <span class="field-label" id="upd-apikey-label">Clé API</span>
+      <input type="password" id="upd-apikey" placeholder="sk-…">
     </div>
 
     <!-- Progress log -->
@@ -396,6 +408,7 @@ tr:hover td{background:var(--surface)}
   </div>
 </div>
 
+<script src="js/provider-meta.js"></script>
 <script>
 // ── Config ────────────────────────────────────────────────────
 // Même logique que _API_BASE dans Exam-Prep.html
@@ -849,14 +862,15 @@ function _buildExistingCtx(questions) {
 async function _callUpdModel(apiKey, chunk, existingCtx, nQ, model, ollamaUrl, ollamaModel) {
   const userMsg = existingCtx + '\n\nCONTENU SOURCE :\n' + chunk +
     `\n\nGénère exactement ${nQ} nouvelles questions sur les aspects du contenu NON encore couverts ci-dessus.`;
+  const meta = _providerMeta(model);
   let endpoint, body, headers;
   if (model === 'ollama') {
-    endpoint = _API_BASE + '/api/ollama';
+    endpoint = meta.endpoint;
     body     = JSON.stringify({ollama_url: ollamaUrl, model: ollamaModel,
                                system: _QUP_SYSTEM, messages: [{role:'user', content: userMsg}]});
     headers  = {'Content-Type': 'application/json'};
   } else {
-    endpoint = _API_BASE + '/api/translate';
+    endpoint = meta.endpoint;
     body     = JSON.stringify({model, max_tokens: 8192, system: _QUP_SYSTEM,
                                messages: [{role:'user', content: userMsg}]});
     headers  = {'Content-Type':'application/json', 'X-Api-Key': apiKey, 'anthropic-version':'2023-06-01'};
@@ -903,11 +917,13 @@ function openUpdateModal() {
   document.getElementById('upd-msg').textContent = '';
   document.getElementById('upd-run-btn').disabled = false;
   document.getElementById('upd-run-btn').textContent = '🔄 Mettre à jour';
-  // Pre-fill API key from session
-  const saved = sessionStorage.getItem('_ak');
+  // Pre-fill API key from session (provider-aware)
+  const model = document.getElementById('upd-model').value;
+  onUpdModelChange(model);
+  const meta = _providerMeta(model);
+  const saved = meta.storageKey ? sessionStorage.getItem(meta.storageKey) : null;
   const keyEl = document.getElementById('upd-apikey');
   if (saved) keyEl.value = saved;
-  onUpdModelChange();
   setUpdTab('yt');
   document.getElementById('upd-overlay').classList.add('open');
 }
@@ -923,12 +939,17 @@ function setUpdTab(tab) {
   document.getElementById('upd-tab-md').classList.toggle('active', tab === 'md');
 }
 
-function onUpdModelChange() {
-  const model = document.getElementById('upd-model').value;
+function onUpdModelChange(model) {
+  model = model || document.getElementById('upd-model').value;
   const isOllama = model === 'ollama';
+  const meta = _providerMeta(model);
   document.getElementById('upd-ollama-wrap').style.display = isOllama ? '' : 'none';
-  document.getElementById('upd-apikey-wrap').style.display =
-    (isOllama || !!sessionStorage.getItem('_ak')) ? 'none' : '';
+  const hasKey = isOllama || (meta.storageKey ? !!sessionStorage.getItem(meta.storageKey) : false);
+  document.getElementById('upd-apikey-wrap').style.display = hasKey ? 'none' : '';
+  const lbl = document.getElementById('upd-apikey-label');
+  if (lbl) lbl.textContent = meta.label;
+  const inp = document.getElementById('upd-apikey');
+  if (inp) inp.placeholder = meta.placeholder;
 }
 
 function onUpdMdFile(input) {
@@ -954,12 +975,13 @@ async function doUpdateExam() {
   const ollamaModel= (document.getElementById('upd-ollama-model').value || 'llama3.2').trim();
   const nQ         = parseInt(document.getElementById('upd-qpc').value) || 5;
 
-  let apiKey = sessionStorage.getItem('_ak') || '';
+  const updMeta = _providerMeta(model);
+  let apiKey = (!isOllama && updMeta.storageKey) ? (sessionStorage.getItem(updMeta.storageKey) || '') : '';
   const keyEl = document.getElementById('upd-apikey');
   if (keyEl.value.trim()) apiKey = keyEl.value.trim();
   if (!isOllama && !apiKey) {
     document.getElementById('upd-msg').style.color = 'var(--red)';
-    document.getElementById('upd-msg').textContent = 'Clé API Anthropic requise.';
+    document.getElementById('upd-msg').textContent = updMeta.label + ' requise.';
     return;
   }
   document.getElementById('upd-msg').textContent = '';
@@ -986,17 +1008,17 @@ async function doUpdateExam() {
   if (!isOllama) {
     const kLine = _updLog('Vérification de la clé API…', 'cur');
     try {
-      const vr = await fetch(_API_BASE + '/api/translate', {
+      const vr = await fetch(updMeta.endpoint, {
         method:'POST',
         headers:{'Content-Type':'application/json','X-Api-Key':apiKey,'anthropic-version':'2023-06-01'},
         body: JSON.stringify({model, max_tokens:1, messages:[{role:'user',content:'test'}]})
       });
       if (vr.status === 401) {
-        sessionStorage.removeItem('_ak');
+        if (updMeta.storageKey) sessionStorage.removeItem(updMeta.storageKey);
         kLine.textContent = 'Clé API invalide (401).'; kLine.className = 'upd-line err';
         btn.disabled = false; btn.textContent = '🔄 Mettre à jour'; return;
       }
-      sessionStorage.setItem('_ak', apiKey);
+      if (updMeta.storageKey) sessionStorage.setItem(updMeta.storageKey, apiKey);
       kLine.textContent = 'Clé API validée ✓'; kLine.className = 'upd-line ok';
     } catch(e) {
       kLine.textContent = 'Vérification impossible : ' + e.message; kLine.className = 'upd-line err';

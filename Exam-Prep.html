@@ -788,11 +788,23 @@
               <input type="number" id="addex-yt-qpc" value="5" min="1" max="15">
             </div>
             <div>
-              <label>Modèle Claude</label>
+              <label>Modèle IA</label>
               <select id="addex-yt-model" onchange="onAddExamModelChange()">
-                <option value="claude-haiku-4-5-20251001" selected>Haiku — rapide</option>
-                <option value="claude-sonnet-4-6">Sonnet — qualité</option>
-                <option value="ollama">Ollama — local</option>
+                <optgroup label="Claude (Anthropic)">
+                  <option value="claude-haiku-4-5-20251001" selected>Haiku — rapide</option>
+                  <option value="claude-sonnet-4-6">Sonnet — qualité</option>
+                </optgroup>
+                <optgroup label="OpenAI">
+                  <option value="gpt-4o-mini">GPT-4o mini — rapide</option>
+                  <option value="gpt-4o">GPT-4o — qualité</option>
+                </optgroup>
+                <optgroup label="Mistral">
+                  <option value="mistral-small-latest">Mistral Small — rapide</option>
+                  <option value="mistral-large-latest">Mistral Large — qualité</option>
+                </optgroup>
+                <optgroup label="Local">
+                  <option value="ollama">Ollama (local)</option>
+                </optgroup>
               </select>
             </div>
           </div>
@@ -809,8 +821,8 @@
             </div>
           </div>
           <div id="addex-apikey-wrap" style="margin-top:8px">
-            <label>Clé API Anthropic <small style="opacity:.6;font-weight:400">(nécessaire pour générer les questions)</small></label>
-            <input type="password" id="addex-apikey" placeholder="sk-ant-...">
+            <label><span id="addex-apikey-label">Clé API</span> <small style="opacity:.6;font-weight:400">(nécessaire pour générer les questions)</small></label>
+            <input type="password" id="addex-apikey" placeholder="sk-…">
           </div>
           <div class="addex-progress" id="addex-progress"></div>
         </div>
@@ -841,11 +853,23 @@
               <input type="number" id="addex-md-qpc" value="5" min="1" max="15">
             </div>
             <div>
-              <label>Modèle Claude</label>
+              <label>Modèle IA</label>
               <select id="addex-md-model" onchange="onAddExamMdModelChange()">
-                <option value="claude-haiku-4-5-20251001" selected>Haiku — rapide</option>
-                <option value="claude-sonnet-4-6">Sonnet — qualité</option>
-                <option value="ollama">Ollama — local</option>
+                <optgroup label="Claude (Anthropic)">
+                  <option value="claude-haiku-4-5-20251001" selected>Haiku — rapide</option>
+                  <option value="claude-sonnet-4-6">Sonnet — qualité</option>
+                </optgroup>
+                <optgroup label="OpenAI">
+                  <option value="gpt-4o-mini">GPT-4o mini — rapide</option>
+                  <option value="gpt-4o">GPT-4o — qualité</option>
+                </optgroup>
+                <optgroup label="Mistral">
+                  <option value="mistral-small-latest">Mistral Small — rapide</option>
+                  <option value="mistral-large-latest">Mistral Large — qualité</option>
+                </optgroup>
+                <optgroup label="Local">
+                  <option value="ollama">Ollama (local)</option>
+                </optgroup>
               </select>
             </div>
           </div>
@@ -862,8 +886,8 @@
             </div>
           </div>
           <div id="addex-md-apikey-wrap" style="margin-top:8px">
-            <label>Clé API Anthropic <small style="opacity:.6;font-weight:400">(nécessaire pour générer les questions)</small></label>
-            <input type="password" id="addex-md-apikey" placeholder="sk-ant-...">
+            <label><span id="addex-md-apikey-label">Clé API</span> <small style="opacity:.6;font-weight:400">(nécessaire pour générer les questions)</small></label>
+            <input type="password" id="addex-md-apikey" placeholder="sk-…">
           </div>
           <div class="addex-progress" id="addex-md-progress"></div>
         </div>
@@ -1095,6 +1119,7 @@ else if (typeof exports === 'object'){
 }
 
 </script>
+<script src="js/provider-meta.js"></script>
 
 <script>
 // WebAssembly binary (base64) — no network request needed
@@ -2667,16 +2692,24 @@ function showAddExamError(msg) {
   err.style.display = 'block';
 }
 
-function _toggleGenerationModelFields(modelId, ollamaWrapId, apikeyWrapId) {
+function _toggleGenerationModelFields(modelId, ollamaWrapId, apikeyWrapId, labelId, inputId) {
   const model = document.getElementById(modelId)?.value;
   const isOllama = model === 'ollama';
+  const meta = _providerMeta(model);
   const ollamaWrap = document.getElementById(ollamaWrapId);
   const apikeyWrap = document.getElementById(apikeyWrapId);
   if (ollamaWrap) ollamaWrap.style.display = isOllama ? '' : 'none';
-  if (apikeyWrap) apikeyWrap.style.display = (isOllama || !!sessionStorage.getItem('_ak')) ? 'none' : '';
+  if (apikeyWrap) {
+    const hasKey = isOllama || (meta.storageKey ? !!sessionStorage.getItem(meta.storageKey) : false);
+    apikeyWrap.style.display = hasKey ? 'none' : '';
+    const lbl = labelId ? document.getElementById(labelId) : null;
+    if (lbl) lbl.textContent = meta.label;
+    const inp = inputId ? document.getElementById(inputId) : null;
+    if (inp) inp.placeholder = meta.placeholder;
+  }
 }
-function onAddExamModelChange()   { _toggleGenerationModelFields('addex-yt-model', 'addex-ollama-wrap', 'addex-apikey-wrap'); }
-function onAddExamMdModelChange() { _toggleGenerationModelFields('addex-md-model', 'addex-md-ollama-wrap', 'addex-md-apikey-wrap'); }
+function onAddExamModelChange()   { _toggleGenerationModelFields('addex-yt-model', 'addex-ollama-wrap', 'addex-apikey-wrap', 'addex-apikey-label', 'addex-apikey'); }
+function onAddExamMdModelChange() { _toggleGenerationModelFields('addex-md-model', 'addex-md-ollama-wrap', 'addex-md-apikey-wrap', 'addex-md-apikey-label', 'addex-md-apikey'); }
 
 function onAddExamFile(input) {
   const f = input.files[0];
@@ -2824,10 +2857,11 @@ var _QGN_SYSTEM = 'Tu es un expert en création de questionnaires de certificati
   'Réponds UNIQUEMENT avec un tableau JSON valide, sans texte autour :\n' +
   '[{"domain":"...","question":"...","opt_a":"...","opt_b":"...","opt_c":"...","opt_d":"...","opt_e":"","opt_f":"","correct_idx":"0","explanation":"...","is_multi":0,"select_count":1}]';
 
-function _invalidateApiKey() {
-  sessionStorage.removeItem('_ak');
-  const w  = document.getElementById('addex-apikey-wrap');    if (w)  w.style.display  = '';
-  const wm = document.getElementById('addex-md-apikey-wrap'); if (wm) wm.style.display = '';
+function _invalidateApiKey(model, apikeyWrapId) {
+  const meta = _providerMeta(model);
+  if (meta.storageKey) sessionStorage.removeItem(meta.storageKey);
+  const w = document.getElementById(apikeyWrapId);
+  if (w) w.style.display = '';
 }
 
 function _createEmptyQuestionsDB() {
@@ -2881,9 +2915,11 @@ async function _saveGeneratedQuiz(dbData, {title, subtitle, description, perExam
 }
 
 async function _validateApiKey(apiKey, model) {
+  const m = model || document.getElementById('addex-yt-model')?.value || 'claude-haiku-4-5-20251001';
+  const meta = _providerMeta(m);
+  if (!meta.endpoint) return true;
   try {
-    const m = model || document.getElementById('addex-yt-model')?.value || 'claude-haiku-4-5-20251001';
-    const resp = await fetch(_API_BASE+'/api/translate', {
+    const resp = await fetch(meta.endpoint, {
       method: 'POST',
       headers: {'Content-Type':'application/json','X-Api-Key':apiKey,'anthropic-version':'2023-06-01'},
       body: JSON.stringify({model:m, max_tokens:1, messages:[{role:'user',content:'test'}]})
@@ -2901,12 +2937,13 @@ async function _callClaudeQGen(apiKey, chunk, nQ, title, opts) {
   const msgContent  = srcLabel+' : "'+title+'"\n\nGénère exactement '+nQ+' questions à partir de ce contenu :\n\n'+chunk;
   let endpoint, body, headers;
 
+  const meta = _providerMeta(model);
   if (model === 'ollama') {
-    endpoint = _API_BASE+'/api/ollama';
+    endpoint = meta.endpoint;
     body     = JSON.stringify({ollama_url:ollamaUrl, model:ollamaModel, system:_QGN_SYSTEM, messages:[{role:'user',content:msgContent}]});
     headers  = {'Content-Type':'application/json'};
   } else {
-    endpoint = _API_BASE+'/api/translate';
+    endpoint = meta.endpoint;
     body     = JSON.stringify({model, max_tokens:4096, system:_QGN_SYSTEM, messages:[{role:'user',content:msgContent}]});
     headers  = {'Content-Type':'application/json','X-Api-Key':apiKey,'anthropic-version':'2023-06-01'};
   }
@@ -2944,13 +2981,17 @@ async function _generateFromYoutube(title, subtitle, perExam, timeMin, passT) {
   const ytUrl = document.getElementById('addex-yt-url').value.trim();
   const lang  = document.getElementById('addex-yt-lang').value;
   const qpc   = parseInt(document.getElementById('addex-yt-qpc').value) || 5;
-  let apiKey  = sessionStorage.getItem('_ak') || '';
+  const ytModel     = document.getElementById('addex-yt-model')?.value || 'claude-haiku-4-5-20251001';
+  const _useOllama  = ytModel === 'ollama';
+  const ytMeta      = _providerMeta(ytModel);
+  const ytOllamaUrl   = (document.getElementById('addex-ollama-url')?.value   || 'http://localhost:11434').trim();
+  const ytOllamaModel = (document.getElementById('addex-ollama-model')?.value  || 'llama3.2').trim();
+  let apiKey  = (!_useOllama && ytMeta.storageKey) ? (sessionStorage.getItem(ytMeta.storageKey) || '') : '';
   const keyEl = document.getElementById('addex-apikey');
   if (keyEl && keyEl.value.trim()) apiKey = keyEl.value.trim();
 
   if (!ytUrl) { showAddExamError('URL YouTube requise.'); return; }
-  const _useOllama = document.getElementById('addex-yt-model')?.value === 'ollama';
-  if (!_useOllama && !apiKey) { showAddExamError('Clé API Anthropic requise.'); return; }
+  if (!_useOllama && !apiKey) { showAddExamError(ytMeta.label + ' requise.'); return; }
   const btn = document.querySelector('.addex-create');
   btn.disabled = true; btn.textContent = '⏳ En cours...';
   document.getElementById('addex-err').style.display = 'none';
@@ -2958,12 +2999,12 @@ async function _generateFromYoutube(title, subtitle, perExam, timeMin, passT) {
   try {
     if (!_useOllama) {
       const keyLine = _addexLog('Vérification de la clé API…', 'cur');
-      if (!await _validateApiKey(apiKey)) {
-        _invalidateApiKey();
+      if (!await _validateApiKey(apiKey, ytModel)) {
+        _invalidateApiKey(ytModel, 'addex-apikey-wrap');
         keyLine.textContent = 'Clé API invalide.'; keyLine.className = 'addex-progress-line err';
         throw new Error('Clé API invalide (401). Saisissez une clé valide ci-dessus et réessayez.');
       }
-      sessionStorage.setItem('_ak', apiKey);
+      if (ytMeta.storageKey) sessionStorage.setItem(ytMeta.storageKey, apiKey);
       keyLine.textContent = 'Clé API validée ✓'; keyLine.className = 'addex-progress-line ok';
     }
     const logLine = _addexLog('Récupération des sous-titres via yt-dlp…', 'cur');
@@ -2988,7 +3029,7 @@ async function _generateFromYoutube(title, subtitle, perExam, timeMin, passT) {
       for (var ci=0; ci<chunks.length; ci++) {
         var segLine = _addexLog('  Segment '+(ci+1)+'/'+chunks.length+'…', 'cur');
         try {
-          var qs = await _callClaudeQGen(apiKey, chunks[ci], qpc, tr.title);
+          var qs = await _callClaudeQGen(apiKey, chunks[ci], qpc, tr.title, {model: ytModel, ollamaUrl: ytOllamaUrl, ollamaModel: ytOllamaModel});
           var res = _insertQuestionsIntoDB(db, qs);
           totalInserted += res.inserted;
           segLine.textContent = '  Segment '+(ci+1)+'/'+chunks.length+' → '+res.inserted+' question(s)';
@@ -2996,7 +3037,7 @@ async function _generateFromYoutube(title, subtitle, perExam, timeMin, passT) {
         } catch(e) {
           segLine.textContent = '  Segment '+(ci+1)+' — ERREUR : '+e.message;
           segLine.className   = 'addex-progress-line err';
-          if (e.message.includes('401')) { _invalidateApiKey(); throw new Error('Clé API invalide (401). Corrigez-la ci-dessus et réessayez.'); }
+          if (e.message.includes('401')) { _invalidateApiKey(ytModel, 'addex-apikey-wrap'); throw new Error('Clé API invalide (401). Corrigez-la ci-dessus et réessayez.'); }
         }
       }
     }
@@ -3025,13 +3066,14 @@ async function _generateFromMarkdown(title, subtitle, perExam, timeMin, passT) {
   const qpc        = parseInt(document.getElementById('addex-md-qpc').value) || 5;
   const model      = document.getElementById('addex-md-model')?.value || 'claude-haiku-4-5-20251001';
   const _useOllama = model === 'ollama';
+  const mdMeta     = _providerMeta(model);
   const ollamaUrl  = (document.getElementById('addex-md-ollama-url')?.value  || 'http://localhost:11434').trim();
   const ollamaModel= (document.getElementById('addex-md-ollama-model')?.value || 'llama3.2').trim();
 
-  let apiKey = sessionStorage.getItem('_ak') || '';
+  let apiKey = (!_useOllama && mdMeta.storageKey) ? (sessionStorage.getItem(mdMeta.storageKey) || '') : '';
   const keyEl = document.getElementById('addex-md-apikey');
   if (keyEl && keyEl.value.trim()) apiKey = keyEl.value.trim();
-  if (!_useOllama && !apiKey) { showAddExamError('Clé API Anthropic requise.'); return; }
+  if (!_useOllama && !apiKey) { showAddExamError(mdMeta.label + ' requise.'); return; }
 
   const btn = document.querySelector('.addex-create');
   btn.disabled = true; btn.textContent = '⏳ En cours...';
@@ -3043,11 +3085,11 @@ async function _generateFromMarkdown(title, subtitle, perExam, timeMin, passT) {
     if (!_useOllama) {
       const keyLine = LOG('Vérification de la clé API…', 'cur');
       if (!await _validateApiKey(apiKey, model)) {
-        _invalidateApiKey();
+        _invalidateApiKey(model, 'addex-md-apikey-wrap');
         keyLine.textContent = 'Clé API invalide.'; keyLine.className = 'addex-progress-line err';
         throw new Error('Clé API invalide (401). Saisissez une clé valide ci-dessus et réessayez.');
       }
-      sessionStorage.setItem('_ak', apiKey);
+      if (mdMeta.storageKey) sessionStorage.setItem(mdMeta.storageKey, apiKey);
       keyLine.textContent = 'Clé API validée ✓'; keyLine.className = 'addex-progress-line ok';
     }
 
@@ -3068,7 +3110,7 @@ async function _generateFromMarkdown(title, subtitle, perExam, timeMin, passT) {
       } catch(e) {
         segLine.textContent = '  Segment '+(ci+1)+' — ERREUR : '+e.message;
         segLine.className   = 'addex-progress-line err';
-        if (e.message.includes('401')) { _invalidateApiKey(); throw new Error('Clé API invalide (401). Corrigez-la ci-dessus et réessayez.'); }
+        if (e.message.includes('401')) { _invalidateApiKey(model, 'addex-md-apikey-wrap'); throw new Error('Clé API invalide (401). Corrigez-la ci-dessus et réessayez.'); }
       }
     }
     if (!totalInserted) throw new Error('Aucune question générée. Vérifiez le contenu du fichier et la clé API.');

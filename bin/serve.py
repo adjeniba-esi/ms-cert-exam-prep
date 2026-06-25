@@ -371,6 +371,10 @@ class ProxyHandler(http.server.SimpleHTTPRequestHandler):
             self._get_transcript()
         elif self.path == '/api/ollama':
             self._proxy_to_ollama()
+        elif self.path == '/api/openai':
+            self._proxy_to_openai_compat('https://api.openai.com/v1/chat/completions')
+        elif self.path == '/api/mistral':
+            self._proxy_to_openai_compat('https://api.mistral.ai/v1/chat/completions')
         elif self.path.startswith('/api/admin/'):
             self._admin_post()
         else:
@@ -541,6 +545,60 @@ class ProxyHandler(http.server.SimpleHTTPRequestHandler):
                 })
             else:
                 self._json_response(500, {'error': err})
+
+    def _proxy_to_openai_compat(self, api_url):
+        """Proxy générique pour les APIs OpenAI-compatibles (OpenAI, Mistral).
+        Reçoit un body au format Anthropic-like, convertit, normalise la réponse."""
+        cl_header = self.headers.get('Content-Length')
+        if cl_header is None:
+            self._json_response(411, {'error': 'Content-Length requis'}); return
+        api_key = self.headers.get('X-Api-Key', '')
+        try:
+            body = json.loads(self.rfile.read(int(cl_header)))
+        except Exception:
+            self._json_response(400, {'error': 'JSON invalide'}); return
+
+        model      = body.get('model', '')
+        max_tokens = body.get('max_tokens', 4096)
+        system     = body.get('system', '')
+        messages   = body.get('messages', [])
+
+        # Conversion : le champ "system" devient un message role:system en tête
+        openai_messages = []
+        if system:
+            openai_messages.append({'role': 'system', 'content': system})
+        openai_messages.extend(messages)
+
+        payload = json.dumps({
+            'model':      model,
+            'max_tokens': max_tokens,
+            'messages':   openai_messages,
+        }).encode()
+
+        req = urllib.request.Request(
+            api_url,
+            data=payload,
+            headers={
+                'Content-Type':  'application/json',
+                'Authorization': 'Bearer ' + api_key,
+            },
+            method='POST'
+        )
+        try:
+            with urllib.request.urlopen(req, context=SSL_CTX, timeout=120) as resp:
+                data = json.loads(resp.read())
+            text = data.get('choices', [{}])[0].get('message', {}).get('content', '')
+            self._json_response(200, {'content': [{'text': text}]})
+        except urllib.error.HTTPError as e:
+            raw = e.read() or b'{}'
+            try:
+                err_body = json.loads(raw)
+                msg = err_body.get('error', {}).get('message', '') or str(err_body)
+            except Exception:
+                msg = raw.decode(errors='replace')
+            self._json_response(e.code, {'error': msg})
+        except Exception as e:
+            self._json_response(502, {'error': str(e)})
 
     def _proxy_to_ollama(self):
         """Proxifie une requête vers une instance Ollama locale."""
