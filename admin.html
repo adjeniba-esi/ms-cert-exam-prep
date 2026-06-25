@@ -215,6 +215,9 @@ tr:hover td{background:var(--surface)}
 <div id="pwd-overlay">
   <div class="pwd-panel">
     <h3>🔑 Changer le mot de passe</h3>
+    <p id="pwd-forced-msg" style="display:none;font-size:12px;color:var(--gold);background:rgba(212,168,83,.08);border:.5px solid rgba(212,168,83,.3);border-radius:6px;padding:8px 10px;line-height:1.5">
+      Vous utilisez le mot de passe par défaut.<br>Vous devez en définir un nouveau avant de continuer.
+    </p>
     <div>
       <span class="field-label">Nouveau mot de passe</span>
       <input type="password" id="new-pwd" placeholder="Nouveau mot de passe">
@@ -226,7 +229,7 @@ tr:hover td{background:var(--surface)}
     </div>
     <div class="pwd-msg" id="pwd-msg"></div>
     <div style="display:flex;gap:8px;justify-content:flex-end">
-      <button class="btn ghost" onclick="closeChangePwd()">Annuler</button>
+      <button class="btn ghost" id="pwd-cancel-btn" onclick="closeChangePwd()">Annuler</button>
       <button class="btn primary" onclick="doChangePwd()">Changer</button>
     </div>
   </div>
@@ -246,6 +249,7 @@ let _curExam = '';
 let _curPage = 1;
 let _curQ    = null;
 let _searchT = null;
+let _forcedPwdChange = false;
 
 // ── Crypto ────────────────────────────────────────────────────
 async function sha256hex(str) {
@@ -272,8 +276,8 @@ async function doLogin() {
   try {
     const sr = await fetch(_API_BASE + '/api/admin/salt');
     if (!sr.ok) throw new Error('Serveur inaccessible (mode HTTP requis).');
-    const { salt } = await sr.json();
-    const hash = await sha256hex(salt + pwd);
+    const saltData = await sr.json();
+    const hash = await sha256hex(saltData.salt + pwd);
 
     // Verify by calling a protected endpoint
     const er = await fetch(_API_BASE + '/api/admin/exams', {
@@ -284,7 +288,13 @@ async function doLogin() {
 
     _token = hash;
     sessionStorage.setItem('_adminHash', hash);
-    showDashboard(await er.json());
+
+    if (saltData.first_login) {
+      showDashboard(await er.json());
+      openChangePwd(true);
+    } else {
+      showDashboard(await er.json());
+    }
   } catch(e) {
     err.textContent = 'Erreur : ' + e.message;
   }
@@ -536,13 +546,17 @@ async function exportSqlite() {
 }
 
 // ── Change password ───────────────────────────────────────────
-function openChangePwd() {
+function openChangePwd(forced) {
+  _forcedPwdChange = !!forced;
   document.getElementById('new-pwd').value = '';
   document.getElementById('new-pwd2').value = '';
   document.getElementById('pwd-msg').textContent = '';
+  document.getElementById('pwd-forced-msg').style.display = forced ? '' : 'none';
+  document.getElementById('pwd-cancel-btn').style.display = forced ? 'none' : '';
   document.getElementById('pwd-overlay').classList.add('open');
 }
 function closeChangePwd() {
+  if (_forcedPwdChange) return;
   document.getElementById('pwd-overlay').classList.remove('open');
 }
 
@@ -570,7 +584,8 @@ async function doChangePwd() {
     _token = hash;
     sessionStorage.setItem('_adminHash', hash);
     msg.style.color = 'var(--green)'; msg.textContent = '✓ Mot de passe changé.';
-    setTimeout(closeChangePwd, 1000);
+    _forcedPwdChange = false;
+    setTimeout(() => document.getElementById('pwd-overlay').classList.remove('open'), 1000);
   } catch(e) {
     msg.style.color = 'var(--red)'; msg.textContent = '✗ ' + e.message;
   }

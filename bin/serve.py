@@ -173,7 +173,7 @@ def _bump_exam_version(exam):
 
 
 def _admin_save_creds(salt, hash_):
-    creds = {'salt': salt, 'hash': hash_}
+    creds = {'salt': salt, 'hash': hash_, 'first_login': False}
     content = 'window.__ADMIN_CREDS = ' + json.dumps(creds) + ';\n'
     try:
         with open(ADMIN_CREDS_FILE, 'w', encoding='utf-8') as f:
@@ -208,7 +208,8 @@ class ProxyHandler(http.server.SimpleHTTPRequestHandler):
             creds = _admin_load_creds()
             if not creds:
                 self._json_response(503, {'error': 'Fichier admin.js introuvable'}); return
-            self._json_response(200, {'salt': creds['salt']}); return
+            self._json_response(200, {'salt': creds['salt'],
+                                      'first_login': creds.get('first_login', False)}); return
         if p.path == '/api/admin/env':
             container = os.path.exists('/.dockerenv') or bool(os.environ.get('KUBERNETES_SERVICE_HOST'))
             self._json_response(200, {'container': container}); return
