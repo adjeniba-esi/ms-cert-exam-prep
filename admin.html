@@ -407,6 +407,7 @@ const _API_BASE = (function(){
 
 let _token = '';
 let _curExam = '';
+let _curExamTitle = '';
 let _curPage = 1;
 let _curQ    = null;
 let _searchT = null;
@@ -479,8 +480,9 @@ async function showDashboard(exams) {
   sel.innerHTML = '<option value="">— Choisir un examen —</option>';
   exams.forEach(e => {
     const o = document.createElement('option');
-    o.value = e.id;
-    o.textContent = (e.uploaded ? '↑ ' : '') + e.id.toUpperCase() + ' — ' + (e.title || e.id);
+    o.value          = e.id;
+    o.dataset.title  = e.title || e.id;
+    o.textContent    = (e.uploaded ? '↑ ' : '') + e.id.toUpperCase() + ' — ' + (e.title || e.id);
     sel.appendChild(o);
   });
 
@@ -500,6 +502,8 @@ async function loadQuestions(page) {
   const exam   = document.getElementById('exam-select').value;
   const search = document.getElementById('q-search').value.trim();
   _curExam = exam;
+  const selEl = document.getElementById('exam-select');
+  _curExamTitle = selEl.options[selEl.selectedIndex]?.dataset.title || exam;
 
   document.getElementById('export-btn').style.display = exam ? '' : 'none';
   document.getElementById('update-btn').style.display = exam ? '' : 'none';
@@ -693,6 +697,17 @@ async function saveQuestion() {
 }
 
 // ── Export SQLite ─────────────────────────────────────────────
+function _exportFilename(title) {
+  const now = new Date();
+  const p   = n => String(n).padStart(2, '0');
+  const ts  = `${now.getFullYear()}${p(now.getMonth()+1)}${p(now.getDate())}_${p(now.getHours())}${p(now.getMinutes())}${p(now.getSeconds())}`;
+  const safe = (title || 'export')
+    .replace(/[^a-z0-9À-ÿ]/gi, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_|_$/g, '');
+  return `${safe}_${ts}.sqlite`;
+}
+
 async function exportSqlite() {
   try {
     const r = await apiFetch('/api/admin/export?exam=' + encodeURIComponent(_curExam));
@@ -700,7 +715,7 @@ async function exportSqlite() {
     const blob = await r.blob();
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement('a');
-    a.href = url; a.download = _curExam + '.sqlite'; a.click();
+    a.href = url; a.download = _exportFilename(_curExamTitle); a.click();
     URL.revokeObjectURL(url);
   } catch(e) {
     alert('Export impossible : ' + e.message);
