@@ -18,7 +18,8 @@ Usage :
 Puis ouvrez : http://localhost:8080/Exam-Prep.html
 """
 import http.server, urllib.request, urllib.error, ssl, os, sys
-import json, re, tempfile, glob, time, sqlite3 as _sqlite3, hashlib as _hashlib
+import json, re, tempfile, glob, time, base64 as _base64
+import sqlite3 as _sqlite3, hashlib as _hashlib
 from urllib.parse import urlparse, parse_qs
 
 try:
@@ -66,22 +67,75 @@ def _admin_verify(handler):
 
 
 def _admin_list_exams():
+    # Bundled exams (from index.json), in their declared order
+    known = set()
+    exams = []
     try:
         with open('exams/index.json', encoding='utf-8') as f:
             ids = json.load(f).get('exams', [])
+        for eid in ids:
+            known.add(eid)
+            meta = {}
+            try:
+                with open(f'exams/{eid}.json', encoding='utf-8') as f:
+                    meta = json.load(f)
+            except Exception:
+                pass
+            exams.append({'id': eid, 'title': meta.get('title', eid),
+                          'subtitle': meta.get('subtitle', ''), 'uploaded': False})
     except Exception:
-        ids = []
-    exams = []
-    for eid in ids:
+        pass
+    # Uploaded exams: any exams/*.json not listed in index.json
+    for path in sorted(glob.glob('exams/*.json')):
+        fname = os.path.basename(path)
+        if fname == 'index.json':
+            continue
+        eid = fname[:-5]
+        if eid in known:
+            continue
         meta = {}
         try:
-            with open(f'exams/{eid}.json', encoding='utf-8') as f:
+            with open(path, encoding='utf-8') as f:
                 meta = json.load(f)
         except Exception:
             pass
         exams.append({'id': eid, 'title': meta.get('title', eid),
-                      'subtitle': meta.get('subtitle', '')})
+                      'subtitle': meta.get('subtitle', ''), 'uploaded': True})
     return exams
+
+
+def _admin_upload_exam(body):
+    exam_id = str(body.get('id', '')).strip().lower()
+    title   = str(body.get('title', '')).strip() or exam_id
+    b64     = str(body.get('sqlite_b64', ''))
+    if not exam_id or not b64:
+        return 400, {'error': 'id et sqlite_b64 requis'}
+    if not re.match(r'^[a-z0-9_-]{1,64}$', exam_id):
+        return 400, {'error': 'ID invalide (a-z, 0-9, _, -)'}
+    try:
+        data = _base64.b64decode(b64)
+    except Exception:
+        return 400, {'error': 'Base64 invalide'}
+    if not data.startswith(b'SQLite format 3\x00'):
+        return 400, {'error': 'Fichier SQLite invalide'}
+    os.makedirs('data/content', exist_ok=True)
+    with open(f'data/content/{exam_id}.sqlite', 'wb') as f:
+        f.write(data)
+    # Create/update exams/<id>.json so it appears in the admin list
+    exam_json = f'exams/{exam_id}.json'
+    existing = {}
+    if os.path.exists(exam_json):
+        try:
+            with open(exam_json, encoding='utf-8') as f:
+                existing = json.load(f)
+        except Exception:
+            pass
+    existing.update({'id': exam_id, 'title': title,
+                     'contentFile': f'data/content/{exam_id}.sqlite'})
+    existing.setdefault('version', 1)
+    with open(exam_json, 'w', encoding='utf-8') as f:
+        json.dump(existing, f, ensure_ascii=False, indent=2)
+    return 200, {'ok': True, 'id': exam_id}
 
 
 def _db_cols(conn):
@@ -285,6 +339,10 @@ class ProxyHandler(http.server.SimpleHTTPRequestHandler):
             err = _admin_save_creds(salt, hash_)
             if err: self._json_response(500, {'error': err}); return
             self._json_response(200, {'ok': True}); return
+
+        if self.path == '/api/admin/upload-exam':
+            status, result = _admin_upload_exam(body)
+            self._json_response(status, result); return
 
         self.send_error(404, 'Not found')
 

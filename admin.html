@@ -97,6 +97,13 @@ tr:hover td{background:var(--surface)}
 .pwd-panel input:focus{border-color:var(--gold)}
 .pwd-msg{font-size:13px;min-height:18px}
 
+/* ── Import modal ── */
+.imp-tabs{display:flex;gap:0;border-bottom:.5px solid var(--border2);margin-bottom:12px}
+.imp-tab{padding:7px 14px;font-size:12px;font-family:var(--font-mono);cursor:pointer;color:var(--text-dim);border-bottom:2px solid transparent;transition:color .15s,border-color .15s}
+.imp-tab.active{color:var(--gold);border-bottom-color:var(--gold)}
+.imp-tab-content{display:none}
+.imp-tab-content.active{display:block}
+
 /* ── Spinner ── */
 .spin{display:inline-block;width:12px;height:12px;border:2px solid var(--border2);border-top-color:var(--gold);border-radius:50%;animation:_spin .6s linear infinite;margin-left:6px;vertical-align:middle}
 @keyframes _spin{to{transform:rotate(360deg)}}
@@ -140,6 +147,7 @@ tr:hover td{background:var(--surface)}
     </select>
     <input type="text" id="q-search" placeholder="🔍 Rechercher dans les questions…"
            oninput="searchDebounce()">
+    <button class="btn" onclick="openImportModal()">↑ Importer</button>
     <button class="btn" id="export-btn" style="display:none" onclick="exportSqlite()">
       ⬇ Exporter SQLite
     </button>
@@ -207,6 +215,55 @@ tr:hover td{background:var(--surface)}
     <div class="edit-actions">
       <button class="btn ghost" onclick="closeEdit()">Annuler</button>
       <button class="btn primary" onclick="saveQuestion()">Sauvegarder</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ Import Exam Modal ═════════════════════════════════════ -->
+<div id="imp-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:300;align-items:center;justify-content:center">
+  <div class="pwd-panel" style="width:440px">
+    <h3>↑ Importer un examen</h3>
+    <div class="imp-tabs">
+      <span class="imp-tab active" data-tab="app" onclick="setImpTab('app')">Depuis l'application</span>
+      <span class="imp-tab" data-tab="file" onclick="setImpTab('file')">Depuis un fichier</span>
+    </div>
+
+    <div class="imp-tab-content active" id="imp-tab-app">
+      <span class="field-label">Examen personnalisé</span>
+      <select id="imp-app-select" onchange="onCustomExamSelect()"
+              style="width:100%;padding:8px 12px;background:var(--bg);border:.5px solid var(--border2);border-radius:6px;color:var(--text);font-size:13px;outline:none;margin-bottom:6px">
+        <option value="">— Chargement… —</option>
+      </select>
+      <small style="color:var(--text-dim);font-size:11px;display:block;margin-bottom:4px">
+        Examens créés via « + Ajouter un questionnaire » dans l'application principale (même navigateur).
+      </small>
+    </div>
+
+    <div class="imp-tab-content" id="imp-tab-file">
+      <span class="field-label">Fichier SQLite</span>
+      <label style="display:block;padding:10px;background:var(--bg);border:.5px dashed var(--border2);border-radius:6px;cursor:pointer;text-align:center;font-size:12px;color:var(--text-dim);margin-bottom:6px">
+        <span id="imp-file-label">Cliquer pour choisir un fichier .sqlite</span>
+        <input type="file" accept=".sqlite,.db" style="display:none" onchange="onImpFileChange(this)">
+      </label>
+    </div>
+
+    <div style="display:flex;gap:10px;margin-top:4px">
+      <div style="flex:1">
+        <span class="field-label">ID</span>
+        <input type="text" id="imp-id" placeholder="ex: mon_examen"
+               style="width:100%;padding:8px 12px;background:var(--bg);border:.5px solid var(--border2);border-radius:6px;color:var(--text);font-size:13px;outline:none">
+      </div>
+      <div style="flex:2">
+        <span class="field-label">Titre</span>
+        <input type="text" id="imp-title" placeholder="Titre de l'examen"
+               style="width:100%;padding:8px 12px;background:var(--bg);border:.5px solid var(--border2);border-radius:6px;color:var(--text);font-size:13px;outline:none">
+      </div>
+    </div>
+
+    <div class="pwd-msg" id="imp-msg"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn ghost" onclick="closeImportModal()">Annuler</button>
+      <button class="btn primary" onclick="doImport()">↑ Importer</button>
     </div>
   </div>
 </div>
@@ -319,7 +376,7 @@ async function showDashboard(exams) {
   exams.forEach(e => {
     const o = document.createElement('option');
     o.value = e.id;
-    o.textContent = e.id.toUpperCase() + ' — ' + (e.title || e.id);
+    o.textContent = (e.uploaded ? '↑ ' : '') + e.id.toUpperCase() + ' — ' + (e.title || e.id);
     sel.appendChild(o);
   });
 
@@ -588,6 +645,164 @@ async function doChangePwd() {
     setTimeout(() => document.getElementById('pwd-overlay').classList.remove('open'), 1000);
   } catch(e) {
     msg.style.color = 'var(--red)'; msg.textContent = '✗ ' + e.message;
+  }
+}
+
+// ── Import exam ───────────────────────────────────────────────
+let _impFile = null;
+
+function openImportModal() {
+  _impFile = null;
+  document.getElementById('imp-id').value = '';
+  document.getElementById('imp-title').value = '';
+  document.getElementById('imp-msg').textContent = '';
+  document.getElementById('imp-file-label').textContent = 'Cliquer pour choisir un fichier .sqlite';
+  setImpTab('app');
+  _loadCustomExamsForImport();
+  document.getElementById('imp-overlay').style.display = 'flex';
+}
+
+function closeImportModal() {
+  document.getElementById('imp-overlay').style.display = 'none';
+}
+
+function setImpTab(tab) {
+  document.querySelectorAll('.imp-tab').forEach(el =>
+    el.classList.toggle('active', el.dataset.tab === tab));
+  document.querySelectorAll('.imp-tab-content').forEach(el =>
+    el.classList.toggle('active', el.id === 'imp-tab-' + tab));
+}
+
+function _loadCustomExamsForImport() {
+  const sel = document.getElementById('imp-app-select');
+  let customs = [];
+  try {
+    const raw = localStorage.getItem('_exam_custom_quizzes_v1');
+    customs = raw ? JSON.parse(raw) : [];
+  } catch(_) {}
+  if (!customs.length) {
+    sel.innerHTML = '<option value="">Aucun examen personnalisé trouvé</option>';
+    return;
+  }
+  sel.innerHTML = '<option value="">— Sélectionner un examen —</option>';
+  customs.forEach(q => {
+    const o = document.createElement('option');
+    o.value          = q.dbKey || (q.id + '_db');
+    o.dataset.examId = q.id;
+    o.dataset.title  = q.title || q.id;
+    o.textContent    = (q.title || q.id) + ' [' + q.id + ']';
+    sel.appendChild(o);
+  });
+}
+
+function onCustomExamSelect() {
+  const sel = document.getElementById('imp-app-select');
+  const opt = sel.options[sel.selectedIndex];
+  if (!opt || !opt.value) return;
+  document.getElementById('imp-id').value    = opt.dataset.examId || '';
+  document.getElementById('imp-title').value = opt.dataset.title  || '';
+}
+
+function onImpFileChange(input) {
+  const f = input.files[0];
+  if (!f) return;
+  _impFile = f;
+  document.getElementById('imp-file-label').textContent =
+    f.name + ' (' + Math.round(f.size / 1024) + ' KB)';
+  const baseName = f.name.replace(/\.sqlite$|\.db$/i, '')
+    .replace(/[^a-z0-9_-]/gi, '_').toLowerCase().slice(0, 64);
+  if (!document.getElementById('imp-id').value)
+    document.getElementById('imp-id').value = baseName;
+}
+
+function _uint8ToBase64(bytes) {
+  let binary = '';
+  const chunk = 8192;
+  for (let i = 0; i < bytes.length; i += chunk)
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  return btoa(binary);
+}
+
+function _idbOpen() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open('exam_prep_v1', 1);
+    req.onsuccess = e => resolve(e.target.result);
+    req.onerror   = e => reject(e.target.error);
+    req.onupgradeneeded = e => e.target.result.createObjectStore('sqlite');
+  });
+}
+async function _idbReadBytes(key) {
+  const db = await _idbOpen();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('sqlite', 'readonly');
+    const r  = tx.objectStore('sqlite').get(key);
+    r.onsuccess = () => resolve(r.result);
+    r.onerror   = e => reject(e.target.error);
+  });
+}
+
+function _showImpMsg(text, type) {
+  const el = document.getElementById('imp-msg');
+  el.textContent = text;
+  el.style.color = type === 'err' ? 'var(--red)' : type === 'ok' ? 'var(--green)' : 'var(--text-muted)';
+}
+
+async function doImport() {
+  const activeTab = document.querySelector('.imp-tab.active')?.dataset.tab;
+  const id    = document.getElementById('imp-id').value.trim().toLowerCase();
+  const title = document.getElementById('imp-title').value.trim();
+
+  if (!id)    { _showImpMsg('ID requis.', 'err'); return; }
+  if (!title) { _showImpMsg('Titre requis.', 'err'); return; }
+  if (!/^[a-z0-9_-]{1,64}$/.test(id)) {
+    _showImpMsg('ID invalide (a-z, 0-9, _ ou -)', 'err'); return;
+  }
+
+  let bytes;
+  try {
+    if (activeTab === 'app') {
+      const dbKey = document.getElementById('imp-app-select').value;
+      if (!dbKey) { _showImpMsg('Sélectionnez un examen.', 'err'); return; }
+      _showImpMsg('Lecture depuis IndexedDB…');
+      bytes = await _idbReadBytes(dbKey);
+      if (!bytes) { _showImpMsg('Examen introuvable dans IndexedDB.', 'err'); return; }
+    } else {
+      if (!_impFile) { _showImpMsg('Sélectionnez un fichier .sqlite.', 'err'); return; }
+      _showImpMsg('Lecture du fichier…');
+      bytes = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload  = e => resolve(new Uint8Array(e.target.result));
+        reader.onerror = e => reject(e.target.error);
+        reader.readAsArrayBuffer(_impFile);
+      });
+    }
+  } catch(e) {
+    _showImpMsg('✗ Lecture impossible : ' + e.message, 'err'); return;
+  }
+
+  _showImpMsg('Envoi au serveur…');
+  const b64 = _uint8ToBase64(bytes);
+
+  try {
+    const r = await apiFetch('/api/admin/upload-exam', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, title, sqlite_b64: b64 })
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || 'Erreur ' + r.status);
+    _showImpMsg('✓ Examen importé avec succès.', 'ok');
+    setTimeout(async () => {
+      closeImportModal();
+      const er = await apiFetch('/api/admin/exams');
+      if (er.ok) {
+        await showDashboard(await er.json());
+        document.getElementById('exam-select').value = id;
+        loadQuestions(1);
+      }
+    }, 700);
+  } catch(e) {
+    _showImpMsg('✗ ' + e.message, 'err');
   }
 }
 
