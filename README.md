@@ -358,6 +358,7 @@ Endpoints d'administration (voir §12) — authentification `Bearer` requise sau
 | POST | `/api/admin/update-question` | ✓ | Modifier une question |
 | POST | `/api/admin/change-password` | ✓ | Changer le mot de passe admin |
 | POST | `/api/admin/upload-exam` | ✓ | Importer un SQLite (base64) et créer `exams/<id>.json` |
+| POST | `/api/admin/apply-updates` | ✓ | Appliquer des mises à jour générées par IA (`{exam, updated, new}`) |
 
 `GET /data/admin.js` est bloqué avec un 403.
 
@@ -815,8 +816,69 @@ depuis le nom du fichier (caractères invalides remplacés par `_`).
 L'ID doit correspondre à `^[a-z0-9_-]{1,64}$`. Si l'ID d'un examen personnalisé
 (`custom_1234567890`) respecte déjà ce format, il peut être réutilisé tel quel.
 
+### Mettre à jour un examen avec du nouveau contenu
+
+Bouton **🔄 Mettre à jour** dans la toolbar (visible dès qu'un examen est sélectionné).
+Ouvre un modal identique à la création, avec deux onglets source.
+
+#### Sources disponibles
+
+| Onglet | Entrée |
+|--------|--------|
+| **▶ YouTube** | URL vidéo ou playlist — sous-titres téléchargés via yt-dlp |
+| **📄 Markdown** | Fichier `.md` ou texte collé directement |
+
+Contrôles communs : langue du contenu, nombre de questions par segment (défaut : 5),
+modèle (Haiku / Sonnet / Ollama), clé API ou paramètres Ollama.
+
+#### Déroulement
+
+1. Chargement des questions existantes (`GET /api/admin/questions?per_page=500`)
+2. Validation de la clé API (appel test 1 token)
+3. Téléchargement des sous-titres ou lecture du Markdown
+4. Génération segment par segment avec un prompt de mise à jour (voir ci-dessous)
+5. Application via `POST /api/admin/apply-updates` → bump de version (invalide le cache IndexedDB)
+6. Rechargement du tableau
+
+#### Prompt de mise à jour
+
+Le prompt système (`_QUP_SYSTEM`) diffère du prompt de création sur trois points :
+
+- **Contexte existant** — les 200 premières questions (id | domaine | énoncé tronqué à 120 car.)
+  sont injectées dans chaque appel pour éviter les doublons et permettre la mise à jour ciblée.
+- **Mission A — Mise à jour** — si le nouveau contenu contredit ou précise une question
+  existante, le modèle fournit la version corrigée avec son `id`. Les autres questions
+  ne sont pas touchées.
+- **Mission B — Enrichissement** — nouvelles questions uniquement sur les sujets
+  non encore couverts par les questions existantes.
+
+#### Règles sur les perturbateurs (incluses dans le prompt)
+
+- Même catégorie que la bonne réponse (jamais hors-sujet ni absurde)
+- Représenter des erreurs réelles du domaine : confusion terminologique, inversion de priorité,
+  valeur seuil décalée, généralisation excessive, amalgame entre concepts proches
+- Longueur et style identiques à la bonne réponse
+- Explication obligatoirement comparative (pourquoi chaque perturbateur est incorrect)
+- Interdiction de "Aucune de ces réponses" et "Toutes les réponses ci-dessus"
+
+Si le même `id` est mis à jour dans plusieurs segments, la dernière version reçue gagne
+(déduplication côté client avant envoi à `apply-updates`).
+
 ### Exporter un SQLite corrigé
 
 Bouton **⬇ Exporter SQLite** (visible dès qu'un examen est sélectionné) : télécharge
-le fichier `data/content/<id>.sqlite` directement depuis le serveur. À committer
-dans le dépôt puis redéployer pour rendre les corrections permanentes.
+le fichier `data/content/<id>.sqlite` directement depuis le serveur.
+
+**Nom du fichier** : `<Titre_de_l_examen>_YYYYMMDD_HHmmss.sqlite`
+— espaces et caractères spéciaux remplacés par `_`, underscores consécutifs fusionnés,
+horodatage local au moment du clic.
+
+Exemples :
+```
+DP_300_20260625_143022.sqlite
+Azure_Database_Administrator_Associate_20260625_143022.sqlite
+Accord_du_participe_passé_20260625_143022.sqlite
+```
+
+À committer dans `data/content/<id>.sqlite` (sans le timestamp dans le dépôt)
+puis redéployer pour rendre les corrections permanentes.
