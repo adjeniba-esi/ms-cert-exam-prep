@@ -67,6 +67,7 @@ ansible-playbook deploy-k8s.yml -e ingress_domain=votre-domaine.com
 9. [Export et import de données](#9-export-et-import-de-données)
 10. [Architecture de chargement](#10-architecture-de-chargement)
 11. [Déploiement Kubernetes](#11-déploiement-kubernetes)
+12. [Interface d'administration](#12-interface-dadministration)
 
 ---
 
@@ -74,13 +75,14 @@ ansible-playbook deploy-k8s.yml -e ingress_domain=votre-domaine.com
 
 ```
 ./
-├── Exam-Prep.html                 Application (fichier unique, ~3000 lignes)
+├── Exam-Prep.html                 Application (fichier unique, ~3500 lignes)
+├── admin.html                     Interface d'administration (correction de questions)
 ├── Dockerfile                     Image de test local (python:3.12-slim + yt-dlp)
 ├── .dockerignore
 ├── .gitattributes                 Force LF sur tous les fichiers texte
 │
 ├── bin/
-│   ├── serve.py                   Serveur HTTP + proxy API (traduction, transcripts, Ollama)
+│   ├── serve.py                   Serveur HTTP + proxy API + API admin
 │   ├── sqlite2js.py               Convertisseur SQLite/JSON → .js (mode file://)
 │   ├── get_playlist_transcripts.py  Télécharge les sous-titres d'une playlist YouTube
 │   ├── transcript2questions.py    Génère des QCM depuis des transcripts via Claude
@@ -89,7 +91,7 @@ ansible-playbook deploy-k8s.yml -e ingress_domain=votre-domaine.com
 ├── exams/                         Définitions des examens
 │   ├── index.json                 Liste des identifiants d'examens disponibles
 │   ├── index.js                   Même contenu, chargeable sans serveur (file://)
-│   ├── <id>.json                  Paramètres d'un examen
+│   ├── <id>.json                  Paramètres d'un examen (natif ou uploadé via admin)
 │   └── <id>.js                    Idem, format .js
 │
 ├── sql/                           Scripts SQL de création des structures
@@ -100,12 +102,15 @@ ansible-playbook deploy-k8s.yml -e ingress_domain=votre-domaine.com
 │   └── 04_history_export.sql
 │
 └── data/
-    ├── content/                   Banques de questions (lecture seule)
+    ├── admin.js                   Credentials admin (sel + hash SHA-256, first_login)
+    │                              ⚠ Bloqué en HTTP par nginx et serve.py (403)
+    ├── content/                   Banques de questions
     │   ├── cdmp.sqlite            600 questions CDMP/DMBOK2
     │   ├── ai900.sqlite           36 questions AI-900
     │   ├── dp300.sqlite           546 questions DP-300
     │   ├── az104.sqlite           123 questions AZ-104
     │   ├── dp700.sqlite           229 questions DP-700
+    │   ├── <id>.sqlite            Examens uploadés depuis l'admin
     │   └── *.sqlite.js            Variantes base64 (mode file://)
     └── results/                   Historiques initiaux (optionnel)
         └── <id>_history.sqlite
@@ -222,6 +227,7 @@ Schéma étendu (DP-300, AZ-104, DP-700, examens personnalisés) — 6 options +
 |-----|---------|------|
 | `version` | `"4"` | Incrémenter force le rechargement du cache IndexedDB |
 | `question_count` | `"546"` | Nombre de questions (pour l'affichage) |
+| `base_lang` | `"fr"` | Langue de base de l'examen — détermine la tuile de langue affichée et la référence pour les traductions. Écrit automatiquement lors de la génération YouTube/Markdown. |
 
 #### Table `question_translations`
 
@@ -330,7 +336,7 @@ python3 bin/serve.py [--port PORT] [--host HOST] [--cors-origin ORIGIN]
 | `--host` | `127.0.0.1` | Interface réseau (`0.0.0.0` pour le réseau local) |
 | `--cors-origin` | `*` | Origine CORS autorisée (restreindre en production) |
 
-Endpoints :
+Endpoints publics :
 
 | Méthode | Chemin | Description |
 |---------|--------|-------------|
@@ -338,6 +344,22 @@ Endpoints :
 | POST | `/api/translate` | Proxy vers `api.anthropic.com/v1/messages` |
 | POST | `/api/transcript` | Extraction de sous-titres YouTube via yt-dlp |
 | POST | `/api/ollama` | Proxy vers une instance Ollama locale |
+
+Endpoints d'administration (voir §12) — authentification `Bearer` requise sauf mention :
+
+| Méthode | Chemin | Auth | Description |
+|---------|--------|------|-------------|
+| GET | `/api/admin/salt` | — | Retourne le sel et le flag `first_login` |
+| GET | `/api/admin/env` | — | Détection container (bannière dans l'UI) |
+| GET | `/api/admin/exams` | ✓ | Liste des examens (natifs + uploadés) |
+| GET | `/api/admin/questions` | ✓ | Questions paginées (`?exam=&search=&page=&per_page=`) |
+| GET | `/api/admin/question` | ✓ | Question unique (`?exam=&id=`) |
+| GET | `/api/admin/export` | ✓ | Téléchargement binaire du SQLite (`?exam=`) |
+| POST | `/api/admin/update-question` | ✓ | Modifier une question |
+| POST | `/api/admin/change-password` | ✓ | Changer le mot de passe admin |
+| POST | `/api/admin/upload-exam` | ✓ | Importer un SQLite (base64) et créer `exams/<id>.json` |
+
+`GET /data/admin.js` est bloqué avec un 403.
 
 La clé API Anthropic est transmise par le navigateur via l'en-tête `X-Api-Key` et
 retransmise sans être stockée côté serveur ni écrite dans les logs.
@@ -684,3 +706,117 @@ ansible-playbook deploy-k8s.yml \
 - Transmise en header `X-Api-Key` via HTTPS, jamais loggée ni stockée côté serveur
 - Validée par un appel test minimal (1 token) avant tout téléchargement de sous-titres
 - `--cors-origin https://{{ ingress_domain }}` restreint le proxy `/api/*` à votre seule origine
+
+---
+
+## 12. Interface d'administration
+
+`admin.html` est une page séparée accessible à `/prep-exam/admin.html` (ou `admin.html`
+en local). Elle permet de corriger manuellement des questions dans n'importe quel
+examen et d'importer des examens personnalisés depuis le navigateur.
+
+### Accès
+
+```
+https://votre-domaine.com/prep-exam/admin.html
+http://localhost:8080/admin.html     # mode serveur Python local
+```
+
+> Requiert le mode serveur HTTP. L'admin ne fonctionne pas en `file://`.
+
+### Authentification
+
+Au premier chargement, une page de connexion demande un mot de passe.
+
+| Étape | Mécanique |
+|-------|-----------|
+| Récupération du sel | `GET /api/admin/salt` → `{salt, first_login}` |
+| Calcul du token | `SHA-256(salt + mot_de_passe)` côté navigateur |
+| Vérification | `GET /api/admin/exams` avec `Authorization: Bearer <token>` |
+| Session | Token conservé dans `sessionStorage` — effacé à la fermeture de l'onglet |
+
+Le mot de passe par défaut est **`admin`**. Les credentials sont dans `data/admin.js` :
+
+```js
+window.__ADMIN_CREDS = {"salt": "...", "hash": "...", "first_login": true};
+```
+
+Ce fichier est bloqué en HTTP (403) — nginx et `serve.py` le refusent tous les deux.
+Il n'est jamais transmis au navigateur ; `serve.py` le lit directement depuis le
+système de fichiers du container.
+
+### Changement de mot de passe obligatoire
+
+Si `first_login: true` est présent dans `data/admin.js`, l'interface affiche le
+modal de changement de mot de passe en mode forcé après la connexion :
+- Le bouton "Annuler" est masqué
+- Il est impossible d'accéder au dashboard sans changer le mot de passe
+
+Après le changement, `serve.py` réécrit `data/admin.js` avec `first_login: false`
+et un nouveau sel + hash générés côté navigateur.
+
+Pour **réinitialiser** le mot de passe au défaut (`admin`), remplacer `data/admin.js` :
+
+```js
+window.__ADMIN_CREDS = {"salt": "7892f03b3797f690e5624999f7d7e63e", "hash": "331b3dc53cfb262398a2e21563332222d1b66c02b443a60d995c346d92e9ae0f", "first_login": true};
+```
+
+Puis redéployer l'image (le fichier est copié dans le container au build).
+
+### Fonctionnalités du dashboard
+
+#### Recherche et pagination
+
+- Sélecteur d'examen (examens natifs + examens uploadés marqués `↑`)
+- Champ de recherche en texte libre sur la question et le domaine (debounce 380 ms)
+- Pagination par 50 questions
+
+#### Modification d'une question
+
+Cliquer **Modifier** sur une ligne ouvre un panneau latéral avec :
+- Champ domaine
+- Énoncé de la question
+- Options A–F (radio pour question simple, checkboxes pour multi-select)
+- Checkbox "Choix multiples" + champ "Nombre de bonnes réponses"
+- Explication
+
+La sauvegarde appelle `POST /api/admin/update-question` et incrémente
+automatiquement le champ `version` dans `exams/<id>.json` pour invalider le
+cache IndexedDB des clients.
+
+> **Avertissement container** : une bannière signale que les modifications sont
+> stockées dans le container actif et perdues au prochain redéploiement. Utiliser
+> **⬇ Exporter SQLite** avant de redéployer, puis committer le fichier dans le dépôt.
+
+### Importer un examen personnalisé
+
+Le bouton **↑ Importer** dans la toolbar ouvre un modal avec deux onglets.
+
+#### Onglet "Depuis l'application"
+
+Liste les examens personnalisés créés via **➕ Ajouter un questionnaire** dans
+l'application principale (même navigateur, même origine). La liste est lue depuis
+`localStorage._exam_custom_quizzes_v1`. La sélection d'un examen remplit
+automatiquement l'ID et le titre.
+
+Au clic sur "↑ Importer" :
+1. Le SQLite est lu depuis IndexedDB (`exam_prep_v1` / store `sqlite`, clé `<id>_db`)
+2. Encodé en base64 et envoyé via `POST /api/admin/upload-exam`
+3. `serve.py` le sauvegarde dans `data/content/<id>.sqlite` et crée `exams/<id>.json`
+4. L'examen apparaît immédiatement dans le sélecteur avec le préfixe `↑`
+
+#### Onglet "Depuis un fichier"
+
+Sélection directe d'un fichier `.sqlite` depuis le disque. L'ID est pré-rempli
+depuis le nom du fichier (caractères invalides remplacés par `_`).
+
+#### Contraintes sur l'ID
+
+L'ID doit correspondre à `^[a-z0-9_-]{1,64}$`. Si l'ID d'un examen personnalisé
+(`custom_1234567890`) respecte déjà ce format, il peut être réutilisé tel quel.
+
+### Exporter un SQLite corrigé
+
+Bouton **⬇ Exporter SQLite** (visible dès qu'un examen est sélectionné) : télécharge
+le fichier `data/content/<id>.sqlite` directement depuis le serveur. À committer
+dans le dépôt puis redéployer pour rendre les corrections permanentes.
